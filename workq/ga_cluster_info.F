@@ -1,0 +1,15 @@
+      subroutine ga_cluster_info(num_nodes, nodeid, counter_host, ppn)
+      implicit none
+#include "global.fh"
+#include "mafdecls.fh"
+      integer num_nodes, nodeid, counter_host, ppn, me
+
+      num_nodes = ga_cluster_nnodes()
+      nodeid = ga_cluster_nodeid()
+      ppn = ga_cluster_nprocs(nodeid)
+      me = ga_nodeid()
+
+      counter_host = me/ppn + 1
+
+      return
+      end
