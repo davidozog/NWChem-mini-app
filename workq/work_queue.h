@@ -6,6 +6,8 @@
 #define MAXMICROTASKS 64
 #define NUM_MSGQS 1
 #define NUM_QUEUES 1
+#define FTOK_FILEPATH "/home/dave/sand/somefile"
+#define FTOK_DATAPATH "/home/dave/sand/datafile"
 
 /* Specific to macro-task: */
 struct num_tasks {
@@ -34,5 +36,14 @@ struct my_msgbuf {
     int e;
     int f;
 };
+
+/* For simpler benchmark: */
+struct bench_buf {
+    long mtype;
+    int task_id;
+    int tile_dim;
+};
+
+
 
 #endif

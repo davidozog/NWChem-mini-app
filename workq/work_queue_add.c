@@ -11,16 +11,17 @@
 #include <malloc.h>
 #include <mpi.h>
 #include "work_queue.h"
-//#include "TAU.h"
+#include "ga.h"
+//#include <TAU.h>
 
 #define MAX_RETRIES 100
 
 #define DEBUG 0
 #define TAUDB 1
 
-//extern void get_hash_block_(int *d_file, double *array, int *size, int *hash, int *key);
-//extern void get_hash_block_i_(int *d_file, double *array, int *size, int *hash, int *key, 
-//                              int *g2b, int *g1b, int *g4b, int *g3b);
+extern void get_hash_block_(int *d_file, double *array, int *size, int *hash, int *key);
+extern void get_hash_block_i_(int *d_file, double *array, int *size, int *hash, int *key, 
+                              int *g2b, int *g1b, int *g4b, int *g3b);
 
 /* For the semaphore status */
 union semun {
@@ -32,6 +33,7 @@ union semun {
 int num_microtasks = 0;
 int tot_microtasks = 0;
 struct my_msgbuf bufs[MAXMICROTASKS];
+struct bench_buf bench_bufs[MAXMICROTASKS];
 //double *mydata;
 double *shmdata;
 int offset = 0;
@@ -43,15 +45,15 @@ int dataqids[NUM_QUEUES];
 
 
 int work_queue_get_hash_block_(int *d_file, double *array, int *size, int *hash, int *key) {
-  //get_hash_block_(d_file, array, size, hash, key);
-  printf("get_hash_block Placeholder...\n");
+//  get_hash_block_(d_file, array, size, hash, key);
+  printf("get_hash here\n");
   return 0;
 }
 
 int work_queue_get_hash_block_i_(int *d_file, double *array, int *size, int *hash, int *key,
                                  int *g2b, int *g1b, int *g4b, int *g3b) {
-  //get_hash_block_i_(d_file, array, size, hash, key, g2b, g1b, g4b, g3b);
-  printf("get_hash_block Placeholder...\n");
+//  get_hash_block_i_(d_file, array, size, hash, key, g2b, g1b, g4b, g3b);
+  printf("get_hash_i here\n");
   return 0;
 }
 
@@ -60,8 +62,8 @@ int work_queue_create_(int *msqids, int *nodeid, int *ppn) {
     int i;
 
     for (i=0; i<NUM_MSGQS; i++) {
-      if ((key = ftok("/global/homes/o/ozog/somefile", (*nodeid+1)*i)) == -1) {
-          perror("ftok");
+      if ((key = ftok(FTOK_FILEPATH, (*nodeid+1)*i)) == -1) {
+          perror("ftok1");
           exit(1);
       }
       if ((msqids[i] = msgget(key, 0644 | IPC_CREAT)) == -1) {
@@ -71,8 +73,8 @@ int work_queue_create_(int *msqids, int *nodeid, int *ppn) {
     }
 
     for (i=0; i<NUM_QUEUES; i++) {
-      if ((key = ftok("/global/homes/o/ozog/datafile", i)) == -1) {
-          perror("ftok");
+      if ((key = ftok(FTOK_DATAPATH, i)) == -1) {
+          perror("ftok2");
           exit(1);
       }
       if ((dataqids[i] = msgget(key, 0644 | IPC_CREAT)) == -1) {
@@ -119,19 +121,30 @@ int work_queue_alloc_task_( int *task_id, int *size) {
 //  struct num_tasks num;
   key_t key;
   int shmid;
+  double t1, t2;
 
+  t1 = MPI_Wtime();
 // Note: all these microtasks have the same task_id/shm_key
 // TODO: If calling this every time is a performance burden,
 // on the receiving side, I can always set it in the struct above...
-  if ((key = ftok("/global/homes/o/ozog/somefile", *task_id)) == -1) {
-    perror("ftok");
+  if ((key = ftok(FTOK_FILEPATH, *task_id)) == -1) {
+    perror("ftok3");
     exit(1);
   }
+  t2 = MPI_Wtime();
+//  printf("ftok time: %f\n", t2 - t1);
+
+
+  t1 = MPI_Wtime();
   /* connect to (and possibly create) the segment: */
   if ((shmid = shmget(key, *size*sizeof(double), 0644 | IPC_CREAT)) == -1) {
     perror("shmget1");
     exit(1);
   }
+  t2 = MPI_Wtime();
+//  printf("shmget time: %f\n", t2 - t1);
+
+  t1 = MPI_Wtime();
   /* attach to the segment to get a pointer to it: */
   shmdata = shmat(shmid, (double *)0, 0);
   //shmdata = shmat(shmid, mydata, SHM_RND);
@@ -142,8 +155,55 @@ int work_queue_alloc_task_( int *task_id, int *size) {
     perror("shmat");
     exit(1);
   }
+  t2 = MPI_Wtime();
+//  printf("shmat time: %f\n", t2 - t1);
+
   return 0;
 
+}
+
+int work_queue_append_task_single_(
+                     int *task_id,
+                     int *tile_dim,
+                     int *g_a,
+                     int *g_b,
+                     int *ld, 
+                     double *bufa,
+                     double *bufb
+    ) {
+
+  struct bench_buf buf;
+  int lo[2], hi[2], myld[1], tile_size;
+  
+  buf.mtype = *task_id+3;
+  buf.task_id = *task_id;
+  buf.tile_dim = *tile_dim;
+
+  tile_size = *tile_dim * (*tile_dim);
+  lo[1] = *task_id*tile_size;
+  hi[1] = lo[1] + tile_size - 1;
+  lo[0] = 0;
+  hi[0] = 0;
+  myld[0] = *ld;
+
+//printf("lo={%d,%d}, hi={%d,%d}\n", lo[0], lo[1], hi[0], hi[1]);
+  NGA_Get(*g_a, lo, hi, shmdata+offset, myld);
+  offset += tile_size;
+  NGA_Get(*g_b, lo, hi, shmdata+offset, myld);
+  offset += tile_size;
+  tot_size += sizeof(double)*(tile_size*2);
+
+//int i,j;
+//printf("bufa: ");
+//for (i=0; i<*tile_dim; i++) {
+//  for (j=0; j<*tile_dim; j++) {
+//    printf("%f ", bufa[*tile_dim*i+j]);
+//  }
+//}
+
+  bench_bufs[num_microtasks++] = buf;
+
+  return 0;
 }
 
 int work_queue_append_task_(
@@ -222,6 +282,77 @@ int work_queue_append_task_(
 //  } 
 
   return 0;
+}
+
+int work_queue_add_single_( int *msqids, 
+                     int *task_id,
+                     int *tile_dim,
+                     int *rank,
+                     int *nodeid,
+                     int *ppn,
+                     int *collector
+                   ) {
+
+  int i;
+  int qlen, qid;
+  struct num_tasks num;
+  size_t size;
+
+   if (DEBUG) printf("sending %d tasks...\n", num_microtasks);
+   num.mtype = MSG_NUMB;
+   num.ntasks = num_microtasks;
+   num.dimc = *tile_dim;
+   num.shm_key = *task_id;
+   num.data_id = dataqids[*task_id % NUM_QUEUES];
+   num.data_size = tot_size;
+   
+   /* detach from the segment: */
+   if (shmdt(shmdata) == -1) {
+       perror("shmdt");
+       exit(1);
+   }
+ 
+   size = sizeof(struct num_tasks) - sizeof(long);
+ 
+   if (*collector) {
+     work_queue_get_min_qlen_(nodeid, msqids, &qlen, &qid);
+ //    printf("min qlen is %d\n", qlen);
+ //    printf("min qid is %d\n", qid);
+   }
+   else {
+     qid = *rank % NUM_MSGQS;
+ //    printf("%d adding a task of size %d\n", *rank, size);
+   }
+ 
+   if (msgsnd(msqids[qid], &num, size, 0) == -1)  {
+     perror("msgsnd2");
+     exit(1);
+   }
+ 
+   size = sizeof(struct my_msgbuf) - sizeof(long);
+   if (DEBUG) printf("sending!\n");
+   for (i=0; i<num_microtasks; i++) {
+     //if (msgsnd(*msqid, &bufs[i], size, 0) == -1) 
+     //  perror("msgsnd");
+ //   printf("sending on data_id %d\n", num.data_id);
+     if (msgsnd(num.data_id, &bench_bufs[i], size, 0) == -1) 
+       perror("msgsnd - data");
+   }
+ 
+   //if (TAUDB) {
+   //  tot_microtasks += num_microtasks;
+   //}
+ 
+   // TODO: free this at the very end of the application ...
+   //free(mydata);
+   num_microtasks = 0;
+   tot_size = 0;
+   offset = 0;
+ 
+   if (DEBUG) printf("sent!\n");
+
+  return 0;
+
 }
 
 int work_queue_add_( int *msqids, 
@@ -367,7 +498,7 @@ int work_queue_get_min_qlen_( int *nodeid, int *msqids, int *qlen, int *qid ) {
   min_q = 0;
   for (i=0; i<NUM_MSGQS; i++) {
   if( msgctl( msqids[i], IPC_STAT, &qbuf) == -1) {
-    perror("msgctl - get_qlen");
+    perror("msgctl1 - get_qlen");
     exit(1);
   }
 //  printf("n:%d r:%d qlen is  %d\n", *nodeid, i, qbuf.msg_qnum);
@@ -398,10 +529,10 @@ int work_queue_get_max_qlen_( int *nodeid, int *msqids, int *qlen, int *qid ) {
   max = 0;
   max_q = 0;
   for (i=0; i<NUM_MSGQS; i++) {
-  if( msgctl( msqids[i], IPC_STAT, &qbuf) == -1) {
-    perror("msgctl - get_qlen");
-    exit(1);
-  }
+    if( msgctl( msqids[i], IPC_STAT, &qbuf) == -1) {
+      perror("msgctl2 - get_qlen");
+      exit(1);
+    }
 //  printf("n:%d r:%d qlen is  %d\n", *nodeid, i, qbuf.msg_qnum);
     if (i==0) {
       max = qbuf.msg_qnum;
@@ -432,12 +563,12 @@ int work_queue_sem_init_(int *ppn) {
 
   if (DEBUG) printf("initializing sem...\n");
 
-  if ((key = ftok("/global/homes/o/ozog/somefile", 'S')) == -1) {
+  if ((key = ftok(FTOK_FILEPATH, 'S')) == -1) {
         perror("ftok:sem collector");
         exit(1);
   }
 
-  if (DEBUG) printf("got key: %d...\n", key);
+  if (DEBUG) printf("init key: %d...\n", key);
 
   semid = semget(key, 1, 0644 | IPC_CREAT);
 
@@ -449,11 +580,13 @@ int work_queue_sem_init_(int *ppn) {
 
   if (semid >= 0) { /* I got it first */
     sb.sem_num = 0;
-    sb.sem_op = 0;
+    sb.sem_op = 1;
     sb.sem_flg = 0;
 
   if (DEBUG) printf("setting sem to: %d...\n", sb.sem_op);
 
+    /* do a semop() to "free" the semaphores. */
+    /* this sets the sem_otime field, as needed below. */
     if (semop(semid, &sb, 1) == -1) {
         int e = errno;
         semctl(semid, 0, IPC_RMID); /* clean up */
@@ -472,9 +605,9 @@ int work_queue_sem_init_(int *ppn) {
     //    perror("semop"); /* error, check errno */
     //    exit(1);
     //}
+  if (DEBUG) printf("got sem...\n");
   }
 
-  if (DEBUG) printf("got sem...\n");
 
   return 0;
 }
@@ -487,10 +620,12 @@ int work_queue_sem_post_(int *nodeid) {
   struct semid_ds buf;
   int ready = 0;
 
-  if ((key = ftok("/global/homes/o/ozog/somefile", 'S')) == -1) {
+  if ((key = ftok(FTOK_FILEPATH, 'S')) == -1) {
         perror("ftok:sem worker");
         exit(1);
   }
+
+  if (DEBUG) printf("post key: %d...\n", key);
 
   semid = semget(key, 1, 0);
   if (semid < 0) { 
@@ -535,7 +670,7 @@ int work_queue_sem_release_(int *nodeid) {
   struct semid_ds buf;
   int ready = 0;
 
-  if ((key = ftok("/global/homes/o/ozog/somefile", 'S')) == -1) {
+  if ((key = ftok(FTOK_FILEPATH, 'S')) == -1) {
         perror("ftok:sem worker");
         exit(1);
   }
@@ -554,6 +689,7 @@ int work_queue_sem_release_(int *nodeid) {
       ready = 1;
     } else {
       if (DEBUG) printf("sem not ready...\n");
+      printf("sem not ready...\n");
     } 
   }
 //  if (!ready) {
@@ -591,7 +727,7 @@ int work_queue_sem_wait_() {
 
   if (DEBUG) printf("waiting on sem...\n");
 
-  if ((key = ftok("/global/homes/o/ozog/somefile", 'S')) == -1) {
+  if ((key = ftok(FTOK_FILEPATH, 'S')) == -1) {
     perror("ftok:sem wait...");
     exit(1);
   }
@@ -619,7 +755,7 @@ int work_queue_sem_getvalue_(int *value, int *nodeid) {
   struct semid_ds buf;
   ushort ar;
 
-  if ((key = ftok("/global/homes/o/ozog/somefile", 'S')) == -1) {
+  if ((key = ftok(FTOK_FILEPATH, 'S')) == -1) {
         perror("ftok:sem worker");
         exit(1);
   }

@@ -13,3 +13,17 @@
 
       return
       end
+
+      FUNCTION am_collector(me, collector, num_collectors)
+      IMPLICIT NONE
+      LOGICAL am_collector
+      INTEGER me, collector, num_collectors, i
+
+      am_collector = .false.
+
+      DO i=0,num_collectors-1
+        IF (me.eq.collector+i) am_collector = .true.
+      END DO
+      RETURN 
+      END FUNCTION am_collector
+

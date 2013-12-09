@@ -21,7 +21,7 @@ int work_queue_destroy_sem_() {
   key_t key;
   int semid;
 
-  if ((key = ftok("/global/homes/o/ozog/somefile", 'S')) == -1) {
+  if ((key = ftok(FTOK_FILEPATH, 'S')) == -1) {
         perror("ftok:sem collector");
         exit(1);
   }

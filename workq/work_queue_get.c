@@ -7,16 +7,18 @@
 #include <sys/time.h>
 #include <errno.h>
 #include "work_queue.h"
+#include "cblas.h"
 
 #define DEBUG 0
-#define TIME 1
+#define TIME 0
 
-//extern void tce_sort_4_(double *unsorted, double *sorted, 
-//                        int *a, int *b, int *c, int *d, 
-//                        int *i, int *j, int *k, int *l, double *factor);
+extern void tce_sort_4_(double *unsorted, double *sorted, 
+                        int *a, int *b, int *c, int *d, 
+                        int *i, int *j, int *k, int *l, double *factor);
 
 struct my_msgbuf buf;
 struct my_msgbuf bufs[MAXMICROTASKS];
+struct bench_buf bench_bufs[MAXMICROTASKS];
 struct num_tasks mynum;
 double *shm_data;
 int shm_offset = 0;
@@ -44,7 +46,7 @@ int work_queue_get_info_(
   size_t size;
 
   /* get the key to the queue */
-//  if ((key = ftok("/global/homes/o/ozog/somefile", 'B')) == -1) {
+//  if ((key = ftok(FTOK_FILEPATH, 'B')) == -1) {
 //      perror("ftok");
 //      exit(1);
 //  }
@@ -99,8 +101,8 @@ int work_queue_get_shm_segment(int *shm_key,
                                int *data_size) {
   key_t key;
   /* make the key: */
-  if ((key = ftok("/global/homes/o/ozog/somefile", *shm_key)) == -1) {
-    perror("ftok");
+  if ((key = ftok(FTOK_FILEPATH, *shm_key)) == -1) {
+    perror("ftok4");
     exit(1);
   }
 
@@ -116,6 +118,7 @@ int work_queue_get_shm_segment(int *shm_key,
       perror("shmat");
       exit(1);
   }
+
   return 0;
 }
 
@@ -128,7 +131,7 @@ int work_queue_rcv_info(int *msqids, int *qid, int rank, int ppn) {
   struct msqid_ds qbuf;
   //if( msgctl( msqids[rank%NUM_MSGQS], IPC_STAT, &qbuf) == -1) {
   if( msgctl( msqids[*qid], IPC_STAT, &qbuf) == -1) {
-    perror("msgctl - get_qlen");
+    perror("msgctl3 - get_qlen");
     exit(1);
   }
 //  printf("%d: qlen is %d\n", rank, qbuf.msg_qnum);
@@ -147,12 +150,44 @@ int work_queue_rcv_info(int *msqids, int *qid, int rank, int ppn) {
   if (TIME) printf("%d: %E seconds elapsed\n", rank, t2-t1);
   //if( msgctl( msqids[rank%NUM_MSGQS], IPC_STAT, &qbuf) == -1) {
   if( msgctl( msqids[*qid], IPC_STAT, &qbuf) == -1) {
-    perror("msgctl - get_qlen");
+    perror("msgctl4 - get_qlen");
     exit(1);
   }
 //  printf("%d: qlen is now %d\n", rank, qbuf.msg_qnum);
 
   return 0;
+}
+
+int work_queue_get_next_single_(
+                          int *rank,
+                          int *data_id,
+                          int *task_id,
+                          int *tile_dim,
+                          int *i
+                   )
+{
+  size_t size;
+
+  size = sizeof(struct my_msgbuf) - sizeof(long);
+//  printf("DATA_ID = %d\n", *data_id);
+  if (msgrcv(*data_id, &bench_bufs[*i], size, *task_id+3, 0) == -1) {
+      perror("msgrcv2");
+      exit(1);
+  }
+
+  *tile_dim = bench_bufs[*i].tile_dim;
+
+//  printf("me:%d, spock2(mtype) %ld\n",*rank,bufs[*i].mtype);
+//  printf("me:%d, spock2(task_id) %d\n",*rank,bufs[*i].task_id);
+//  printf("me:%d, spock2(dima_sort) %d\n",*rank,bufs[*i].dima_sort);
+//  printf("me:%d, spock2(dimb_sort) %d\n",*rank,bufs[*i].dimb_sort);
+//  printf("me:%d, spock2(dim_common) %d\n",*rank,bufs[*i].dim_common);
+//  printf("me:%d, spock2(nsuper1) %d\n",*rank,bufs[*i].nsuper1);
+//  printf("me:%d, spock2(nsuper2) %d\n",*rank,bufs[*i].nsuper2);
+//  printf("me:%d ---------------------\n");
+
+  return 0;
+
 }
 
 int work_queue_get_next_(
@@ -202,11 +237,43 @@ int work_queue_get_next_(
 
 }
 
+int work_queue_execute_task_single_(double *k_cs,
+                             int *tile_dim,
+                             double *alpha, double *factor,
+                             char *c1, char *c2,
+                             int *rank) {
+
+//  work_queue_dgemm_(c1,c2,alpha,factor,dima_sort,dimb_sort,dim_common,
+//                    a_sorted,b_sorted,k_cs);
+
+  int dima, dimb;
+  dima = *tile_dim * (*tile_dim);
+  dimb = dima;
+
+  if (DEBUG) {
+    printf("data: ");
+    int i;
+    for (i=0; i<*tile_dim*(*tile_dim)*2; i++) {
+      printf("%f,",shm_data[shm_offset+i]);
+    }
+    printf("\n\n");
+  }
+
+  work_queue_dgemm_(c1,c2,alpha,factor,tile_dim,tile_dim,tile_dim,
+                    shm_data + shm_offset,
+                    shm_data + shm_offset + dima, k_cs);
+  shm_offset += dima + dimb;
+
+  return 0;
+
+}
+
+
 int work_queue_execute_task_(double *k_cs,
                              int *dima_sort, int *dimb_sort, int *dim_common,
                              int *a, int *b, int *c, int *d, int *e, int *f,
                              int *i, int *j, int *k, int *l, double *factor,
-                             int *alpha, char *c1, char *c2, int *rank) {
+                             double *alpha, char *c1, char *c2, int *rank) {
 
   int dima = *dima_sort * (*dim_common);
   int dimb = *dimb_sort * (*dim_common);
@@ -233,9 +300,10 @@ int work_queue_dgemm_(char *c1, char *c2, double *alpha, double *factor,
                       int *dima_sort, int *dimb_sort, int *dim_common,
                       double *a_sorted, double *b_sorted, double *k_c) {
 
-//  dgemm_(c1,c2,dima_sort,dimb_sort,dim_common,alpha,a_sorted,dim_common,
-//        b_sorted,dim_common,factor,k_c,dima_sort);
-  printf("DGEMM Placeholder...\n");
+  cblas_dgemm(CblasColMajor, CblasTrans, CblasNoTrans, 
+                2, 2, 2, *alpha, a_sorted, 2, b_sorted, 2, *factor, k_c, 2);
+//dgemm_(c1,c2,dima_sort,dimb_sort,dim_common,alpha,a_sorted,dim_common,
+//b_sorted,dim_common,factor,k_c,dima_sort);
 
   return 0;
 }
@@ -255,7 +323,8 @@ int work_queue_tce_sort_4_(double *unsorted, double *sorted,
 //  printf("l=%d\n", *l);
 //  printf("factor=%f\n", *factor);
 //  tce_sort_4_(unsorted, sorted, a, b, c, d, i, j, k, l, factor);
-  printf("TCE_SORT_4 Placeholder...\n");
+  printf("work_queue_dgemm here\n");
+//  printf("out alive\n");
   return 0;
 }
 
