@@ -301,7 +301,8 @@ int work_queue_dgemm_(char *c1, char *c2, double *alpha, double *factor,
                       double *a_sorted, double *b_sorted, double *k_c) {
 
   cblas_dgemm(CblasColMajor, CblasTrans, CblasNoTrans, 
-                2, 2, 2, *alpha, a_sorted, 2, b_sorted, 2, *factor, k_c, 2);
+                *dim_common, *dim_common, *dim_common, *alpha, a_sorted, 
+                *dim_common, b_sorted, *dim_common, *factor, k_c, *dim_common);
 //dgemm_(c1,c2,dima_sort,dimb_sort,dim_common,alpha,a_sorted,dim_common,
 //b_sorted,dim_common,factor,k_c,dima_sort);
 

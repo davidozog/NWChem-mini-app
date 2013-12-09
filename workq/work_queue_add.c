@@ -284,14 +284,14 @@ int work_queue_append_task_(
   return 0;
 }
 
-int work_queue_add_single_( int *msqids, 
-                     int *task_id,
-                     int *tile_dim,
-                     int *rank,
-                     int *nodeid,
-                     int *ppn,
-                     int *collector
-                   ) {
+int work_queue_add_single_( int *msqids,    // in
+                     int *task_id,          // in
+                     int *tile_dim,         // in
+                     int *rank,             // in
+                     int *nodeid,           // in
+                     int *ppn,              // in
+                     int *collector         // in  (bool)
+                   ) {                      
 
   int i;
   int qlen, qid;

@@ -81,8 +81,9 @@ c     call ga_print(g_c)
       double precision time1, time2, total_time
       logical status
       integer tile_dim, tile_size
-      parameter (tile_dim = 2)
+      parameter (tile_dim = 3)
       parameter (tile_size = tile_dim*tile_dim)
+      integer k
 
       time1 = ga_wtime()
 
@@ -141,7 +142,7 @@ c   Create a global counter for dynamic load balancing
       logical status, a_collector, am_collector, init
       integer num_collectors, msqids(7), sem, collector
       integer tile_dim, tile_size
-      parameter (tile_dim = 2)
+      parameter (tile_dim = 3)
       parameter (tile_size = tile_dim*tile_dim)
 
       time1 = ga_wtime()
@@ -250,7 +251,7 @@ c         call ga_get(g_b, ilo, ihi, 1, 1, bufb, ld)
       logical status
       integer num_collectors, msqids(7), sem, collector
       integer tile_dim, tile_size
-      parameter (tile_dim = 2)
+      parameter (tile_dim = 3)
       parameter (tile_size = tile_dim*tile_dim)
 
       time1 = ga_wtime()
