@@ -104,9 +104,13 @@ c   Create a global counter for dynamic load balancing
           ilo = next*tile_size + 1
           ihi = ilo + tile_size - 1
           ld = LOCAL_BUFLEN*nproc
-  
+
           call ga_get(g_a, ilo, ihi, 1, 1, bufa, ld)
           call ga_get(g_b, ilo, ihi, 1, 1, bufb, ld)
+
+          do j=1,LOCAL_BUFLEN
+            bufc(j) = 0.0d0
+          end do
 
           call dgemm( 'T', 'N', tile_dim, tile_dim, tile_dim, 1.0d0, 
      &                 bufa, tile_dim, bufb, tile_dim, 1.0, bufc, 
