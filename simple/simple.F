@@ -4,7 +4,7 @@
 #include "mafdecls.fh"
 #include "global.fh"
 #include "errquit.fh"
-#define LOCAL_BUFLEN 100
+#define LOCAL_BUFLEN 3125000
       integer ierr, me, nproc, heap, stack, tot_data_size, ga_cnt
       integer g_a, g_b, g_c, chunk, i, ihi, ilo, jhi, jlo, ld
       integer msqids(7)
@@ -91,7 +91,7 @@ c     call ga_print(g_c)
       time2 = ga_wtime()
       total_time = time2 - time1
 
-      if(me.eq.0) write(*, 10), "bench_orig:", total_time
+      write(*, 10), "bench_orig:", total_time
  10   format (a,2x,f10.6)
 
       return
