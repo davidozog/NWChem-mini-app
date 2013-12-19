@@ -4,15 +4,15 @@
 #include "mafdecls.fh"
 #include "global.fh"
 #include "errquit.fh"
-#define LOCAL_BUFLEN 100
+#define LOCAL_BUFLEN 10000000
       integer ierr, me, nproc, heap, stack, tot_data_size, ga_cnt
       integer g_a, g_b, g_c, chunk, i, ihi, ilo, jhi, jlo, ld
       integer msqids(7)
-      double precision buf(LOCAL_BUFLEN)
+      double precision buf(LOCAL_BUFLEN), t2, t1
       logical status
 
       heap =  96000000
-      stack = 96000000
+      stack = 800000000
 
       call mpi_init(ierr)
       call ga_initialize()
@@ -49,8 +49,19 @@ c   Populate GA with synthetic data (GA[i] = i)
       call ga_put(g_b, ilo, ihi, 1, 1, buf, ld)
       call ga_zero(g_c)
 
-c     call bench_orig(g_a, g_b, g_c)
+      t1 = ga_wtime()
+      call bench_orig(g_a, g_b, g_c)
+      call ga_sync()
+      t2 = ga_wtime()
+      if(me.eq.0) write(*, 10), "bench_orig:", t2 - t1
+ 10   format (a,2x,f10.6)
+
+      t1 = ga_wtime()
       call bench_workq(g_a, g_b, g_c,.true.,ga_cnt,msqids)
+      call ga_sync()
+      t2 = ga_wtime()
+      if(me.eq.0) write(*, 10), "bench_workq:", t2 - t1
+
 c     call bench_workq_mm(g_a, g_b, g_c)
 
 c     call ga_print(g_a)
@@ -81,7 +92,7 @@ c     call ga_print(g_c)
       double precision time1, time2, total_time
       logical status
       integer tile_dim, tile_size
-      parameter (tile_dim = 3)
+      parameter (tile_dim = 1000)
       parameter (tile_size = tile_dim*tile_dim)
       integer k
 
@@ -126,8 +137,8 @@ c   Create a global counter for dynamic load balancing
       time2 = ga_wtime()
       total_time = time2 - time1
 
-      if(me.eq.0) write(*, 10), "bench_orig:", total_time
- 10   format (a,2x,f10.6)
+c     if(me.eq.0) write(*, 10), "bench_orig:", total_time
+c10   format (a,2x,f10.6)
 
       return
       end
@@ -142,11 +153,11 @@ c   Create a global counter for dynamic load balancing
       integer ga_cnt, count, next, i, j, ilo, ihi, ld, tot_data_size
       double precision bufa(LOCAL_BUFLEN)
       double precision bufb(LOCAL_BUFLEN)
-      double precision time1, time2, total_time
+      double precision time1, time2, total_time, t1, t2
       logical status, a_collector, am_collector, init
       integer num_collectors, msqids(7), sem, collector
       integer tile_dim, tile_size
-      parameter (tile_dim = 3)
+      parameter (tile_dim = 1000)
       parameter (tile_size = tile_dim*tile_dim)
 
       time1 = ga_wtime()
@@ -158,7 +169,7 @@ c   Create a global counter for dynamic load balancing
       tot_data_size = nproc * LOCAL_BUFLEN
 
 c     The zeroeth proc on each node is that node's collector:
-      num_collectors = 1
+      num_collectors = 6
       collector = me - mod(me,ppn)
       a_collector = am_collector(me, collector, num_collectors) 
 
@@ -201,8 +212,12 @@ c         print *, "sem value = ", sem
   
 c         call ga_get(g_a, ilo, ihi, 1, 1, bufa, ld)
 c         call ga_get(g_b, ilo, ihi, 1, 1, bufb, ld)
+          t1 = ga_wtime()
           call work_queue_append_task_single(next, tile_dim, g_a, g_b, 
      &                                       ld, bufa, bufb)
+          t2 = ga_wtime()
+          write(*, 20), "GET(", me, "):", t2 - t1
+ 20     format (a,i2,a,2x,f10.6)
           call work_queue_add_single(msqids, next, tile_dim, me, nodeid,
      &                         ppn, a_collector)
 
@@ -234,8 +249,8 @@ c         call ga_get(g_b, ilo, ihi, 1, 1, bufb, ld)
 
       CALL worker(g_a, g_b, g_c, ga_cnt, msqids, num_collectors)
 
-      if(me.eq.0) write(*, 10), "bench_workq:", total_time
- 10   format (a,2x,f10.6)
+c     if(me.eq.0) write(*, 10), "bench_workq:", total_time
+c10   format (a,2x,f10.6)
 
       return
       end
@@ -255,7 +270,7 @@ c         call ga_get(g_b, ilo, ihi, 1, 1, bufb, ld)
       logical status
       integer num_collectors, msqids(7), sem, collector
       integer tile_dim, tile_size
-      parameter (tile_dim = 3)
+      parameter (tile_dim = 1000)
       parameter (tile_size = tile_dim*tile_dim)
 
       time1 = ga_wtime()
@@ -348,7 +363,7 @@ c       CALL work_queue_destroy_data(shmid)
       integer me, num_nodes, nodeid, collector, collector_host, ppn
       integer more_tasks,data_size,task_id,qlen,qid,nc,data_id,key,shmid
       integer a,b,c,d,tile_dim,tile_size,e,f,i
-      double precision bufc(LOCAL_BUFLEN)
+      double precision bufc(LOCAL_BUFLEN), t2, t1
       integer ilo, ihi, ld
       character*(256) hostname
       integer j
@@ -392,8 +407,14 @@ c         print *, "R:", me, "QLEN IS ZERO"
             do j=1,LOCAL_BUFLEN
               bufc(j) = 0.0d0
             end do
+            
+            t1 = ga_wtime()
             call work_queue_execute_task_single(bufc,
      &                tile_dim, 1.0d0, 2.0d0,'T','N',me)
+            t2 = ga_wtime()
+            write(*, 20), "DGEMM(", me, "):", t2 - t1
+ 20         format (a,i2,a,2x,f10.6)
+
 
             tile_size = tile_dim*tile_dim
             ilo = task_id*tile_size + 1
