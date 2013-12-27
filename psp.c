@@ -8,9 +8,21 @@
 
 #define LOCAL_BUFLEN 100
 #define TILE_DIM 2
+#define MAX_GETS 2
 
 
-void bench_orig(int g_a, int g_b, int g_c){
+void print(double matrix[MAX_GETS][TILE_DIM*TILE_DIM])
+{
+    int i, j;
+    for (i = 0; i < MAX_GETS; ++i)
+    {
+        for (j = 0; j < TILE_DIM*TILE_DIM; ++j)
+            printf("%f ", matrix[i][j]);
+        printf("\n");
+    }
+}
+
+void bench_orig(int g_a, int g_b, int g_c) {
 
   int me, nproc, num_nodes, nodeid, ppn, tot_data_size;
   int g_cnt, count, next, index, i, j;
@@ -19,7 +31,7 @@ void bench_orig(int g_a, int g_b, int g_c){
   const int tile_dim = TILE_DIM;
   const int tile_size = tile_dim*tile_dim;
 
-  double bufa[LOCAL_BUFLEN], bufb[LOCAL_BUFLEN], bufc[LOCAL_BUFLEN];
+  double bufa[tile_size], bufb[tile_size], bufc[tile_size];
   memset(bufa,0,sizeof(bufa));
   memset(bufb,0,sizeof(bufb));
   memset(bufc,0,sizeof(bufc));
@@ -41,10 +53,8 @@ void bench_orig(int g_a, int g_b, int g_c){
   count = 0;
   index = 0;
   next = NGA_Read_inc(g_cnt, &index, 1);
-  printf("tot_data_size=%d\n", tot_data_size);
-  printf("tile_size=%d\n", tile_size);
 
-  for (i=0; i<tot_data_size/tile_size-1; i++) {
+  for (i=0; i<tot_data_size/tile_size; i++) {
     if (next == count) {
       ilo = next*tile_size;
       ihi = ilo + tile_size - 1;
@@ -53,24 +63,12 @@ void bench_orig(int g_a, int g_b, int g_c){
       NGA_Get(g_a, &ilo, &ihi, bufa, &ld);
       NGA_Get(g_b, &ilo, &ihi, bufb, &ld);
 
+      memset(bufc,0,sizeof(bufc));
+      cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans, tile_dim, \
+                  tile_dim, tile_dim, 1.0, bufa, tile_dim, bufb,     \
+                  tile_dim, 2.0, bufc, tile_dim);
+
       ld = tile_dim;
-      printf("here0\n");
-      double *a = (double *) malloc( sizeof(double)*6 );
-      double *b = (double *) malloc( sizeof(double)*6 );
-      double *c = (double *) malloc( sizeof(double)*6 );
-
-      for (j=0; j<6; j++) {
-        a[j] = (double)j;
-        b[j] = (double)j;
-        c[j] = 0.0;
-      }
-      cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans, 2, 2, 2, 1.0, a, 2, b, 2, 2.0, c, 2);
-
-      printf("here1\n");
-//          call dgemm( 'T', 'N', tile_dim, tile_dim, tile_dim, 1.0d0, 
-//     &                 bufa, tile_dim, bufb, tile_dim, 1.0, bufc, 
-//     &                 tile_dim)
-//
       NGA_Put(g_c, &ilo, &ihi, bufc, &ld);
 
       next = NGA_Read_inc(g_cnt, &index, 1);
@@ -81,18 +79,132 @@ void bench_orig(int g_a, int g_b, int g_c){
   t2 = GA_Wtime();
   total_time = t2 - t1;
 
-  GA_Print(g_cnt);
+  GA_Destroy(g_cnt);
 
-  printf("num_nodes=%d\n", num_nodes);
-  printf("nodeid=%d\n", nodeid);
-  printf("ppn=%d\n", ppn);
-  printf("me=%d\n", me);
-  printf("nproc=%d\n", nproc);
+  return;
+}
+
+
+void bench_nb(int g_a, int g_b, int g_c) {
+
+  int me, nproc, num_nodes, nodeid, ppn, tot_data_size;
+  int g_cnt, count, next, index, i, j, total_tasks;
+  int ilo, ihi, ld;
+  double t1, t2, total_time;
+  const int tile_dim = TILE_DIM;
+  const int tile_size = tile_dim*tile_dim;
+
+  me = GA_Nodeid(); 
+  nproc = GA_Nnodes();
+  num_nodes = GA_Cluster_nnodes();
+  nodeid = GA_Cluster_nodeid();
+  ppn = GA_Cluster_nprocs(nodeid);
+  tot_data_size = nproc * LOCAL_BUFLEN;
+
+  double bufa[MAX_GETS][tile_size]; 
+  double bufb[MAX_GETS][tile_size]; 
+  double bufc[MAX_GETS][tile_size];
+
+  memset(bufa,0,sizeof(bufa[0][0])*MAX_GETS*tile_size);
+  memset(bufb,0,sizeof(bufb[0][0])*MAX_GETS*tile_size);
+
+  t1 = GA_Wtime();
+
+/* Create a global counter for dynamic load balancing */
+  int n=1;
+  g_cnt = NGA_Create(C_INT, 1, &n, "ga:COUNTER", NULL);
+  GA_Zero(g_cnt);
+
+  count = 0;
+  index = 0;
+  next = NGA_Read_inc(g_cnt, &index, 1);
+
+  ga_nbhdl_t handle_A[MAX_GETS], handle_B[MAX_GETS];
+
+  unsigned int iter = 1;
+  unsigned int prevID = 0;
+  ld = LOCAL_BUFLEN*nproc;
+  for (i=0; i<tot_data_size/tile_size-1; i++) {
+
+    if (next == count) {
+
+      memset(bufc,0,sizeof(bufc[0][0])*MAX_GETS*tile_size);
+
+      if (iter==1) {
+        for (j=0; j<MAX_GETS; j++) {
+          ilo = (next+j)*tile_size;
+          ihi = ilo + tile_size - 1;
+          NGA_NbGet(g_a, &ilo, &ihi, &bufa[j][0], &ld,  &handle_A[j]);
+          NGA_NbGet(g_b, &ilo, &ihi, &bufb[j][0], &ld,  &handle_B[j]);
+        }
+        ilo = (next)*tile_size;
+        ihi = ilo + tile_size - 1;
+        NGA_NbWait(&handle_A[0]);
+        NGA_NbWait(&handle_B[0]);
+      }
+      else if (iter==2) {
+        NGA_NbWait(&handle_A[1]);
+        NGA_NbWait(&handle_B[1]);
+        memcpy(&bufa[0][0], &bufa[1][0], sizeof(double)*tile_size);
+        memcpy(&bufb[0][0], &bufb[1][0], sizeof(double)*tile_size);
+
+        ilo = (next+1)*tile_size;
+        ihi = ilo + tile_size - 1;
+        NGA_NbGet(g_a, &ilo, &ihi, &bufa[1][0], &ld,  &handle_A[1]);
+        NGA_NbGet(g_b, &ilo, &ihi, &bufb[1][0], &ld,  &handle_B[1]);
+        ilo = (prevID)*tile_size;
+        ihi = ilo + tile_size - 1;
+      }
+      else {
+        NGA_NbWait(&handle_A[1]);
+        NGA_NbWait(&handle_B[1]);
+        memcpy(&bufa[0][0], &bufa[1][0], sizeof(double)*tile_size);
+        memcpy(&bufb[0][0], &bufb[1][0], sizeof(double)*tile_size);
+
+        ilo = (next+1)*tile_size;
+        ihi = ilo + tile_size - 1;
+        NGA_NbGet(g_a, &ilo, &ihi, &bufa[1][0], &ld,  &handle_A[1]);
+        NGA_NbGet(g_b, &ilo, &ihi, &bufb[1][0], &ld,  &handle_B[1]);
+        ilo = (prevID)*tile_size;
+        ihi = ilo + tile_size - 1;
+      }
+
+      cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans, tile_dim, \
+                  tile_dim, tile_dim, 1.0, &bufa[0][0], tile_dim,    \
+                  &bufb[0][0], tile_dim, 2.0, &bufc[0][0], tile_dim);
+
+      ld = tile_dim;
+      NGA_Put(g_c, &ilo, &ihi, &bufc[0][0], &ld);
+
+      prevID = next+1;
+      next = NGA_Read_inc(g_cnt, &index, 1);
+      iter++;
+    }
+    count++;
+  }
+        NGA_NbWait(&handle_A[1]);
+        NGA_NbWait(&handle_B[1]);
+        memcpy(&bufa[0][0], &bufa[1][0], sizeof(double)*tile_size);
+        memcpy(&bufb[0][0], &bufb[1][0], sizeof(double)*tile_size);
+        memset(bufc,0,sizeof(bufc[0][0])*MAX_GETS*tile_size);
+      cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans, tile_dim, \
+                  tile_dim, tile_dim, 1.0, &bufa[0][0], tile_dim,    \
+                  &bufb[0][0], tile_dim, 2.0, &bufc[0][0], tile_dim);
+        ilo = (prevID)*tile_size;
+        ihi = ilo + tile_size - 1;
+
+      ld = tile_dim;
+      NGA_Put(g_c, &ilo, &ihi, &bufc[0][0], &ld);
+
+
+  t2 = GA_Wtime();
+  total_time = t2 - t1;
 
   GA_Destroy(g_cnt);
 
   return;
 }
+
 
 int main(int argc, char *argv[]) {
 
@@ -139,7 +251,16 @@ int main(int argc, char *argv[]) {
   t2 = GA_Wtime();
   GA_Sync();
   if (me == 0)
-    printf("Time taken = \%lf seconds\n", t2-t1);
+    printf("Bench (Original) time taken = \%lf seconds\n", t2-t1);
+
+//  t1 = GA_Wtime();
+//  bench_nb(g_a, g_b, g_c);
+//  t2 = GA_Wtime();
+//  GA_Sync();
+//  if (me == 0)
+//    printf("Bench (Non-Blocking) time taken = \%lf seconds\n", t2-t1);
+
+  GA_Print(g_c);
 
   GA_Destroy(g_a);  GA_Destroy(g_b);  GA_Destroy(g_c);
 
@@ -148,90 +269,4 @@ int main(int argc, char *argv[]) {
 
   return 0;
 }
-
-//      program psp
-//      implicit none
-//#include "mpif.h"
-//#include "mafdecls.fh"
-//#include "global.fh"
-//#include "errquit.fh"
-//#define LOCAL_BUFLEN 100
-//      integer ierr, me, nproc, heap, stack, tot_data_size, ga_cnt
-//      integer g_a, g_b, g_c, chunk, i, ihi, ilo, jhi, jlo, ld
-//      integer msqids(7)
-//      double precision buf(LOCAL_BUFLEN), t2, t1
-//      logical status
-//
-//      heap =  96000000
-//      stack = 80000000
-//
-//      call mpi_init(ierr)
-//      call ga_initialize()
-//
-//      me = ga_nodeid()
-//      nproc = ga_nnodes()
-//      tot_data_size = nproc * LOCAL_BUFLEN
-//
-//      if (.not.ma_init(MT_DBL, stack, heap))
-//     +   call ga_error("ma_init failed",-1)
-//      call flush(6)
-//
-//c   This mimics the creation of T2/V2 in tce_energy.F
-//      status = ga_create(MT_DBL, LOCAL_BUFLEN*nproc, 1, 
-//     &                   "ga:A", -1, 1, g_a)
-//      if (.not.status) call pexit('ga_create(A) fail')
-//      status = ga_create(MT_DBL, LOCAL_BUFLEN*nproc, 1, 
-//     &                   "ga:B", -1, 1, g_b)
-//      if (.not.status) call pexit('ga_create(B) fail')
-//      status = ga_create(MT_DBL, LOCAL_BUFLEN*nproc, 1, 
-//     &                   "ga:C", -1, 1, g_c)
-//      if (.not.status) call pexit('ga_create(C) fail')
-//
-//      ilo = me*LOCAL_BUFLEN + 1
-//      ihi = ilo + LOCAL_BUFLEN - 1
-//      ld = LOCAL_BUFLEN*nproc
-//
-//c   Populate GA with synthetic data (GA[i] = i)
-//      do i=1,LOCAL_BUFLEN
-//        buf(i) = dble(LOCAL_BUFLEN*me) + i
-//      end do
-//
-//      call ga_put(g_a, ilo, ihi, 1, 1, buf, ld)
-//      call ga_put(g_b, ilo, ihi, 1, 1, buf, ld)
-//      call ga_zero(g_c)
-//
-//c     t1 = ga_wtime()
-//c     call bench_orig(g_a, g_b, g_c)
-//c     call ga_sync()
-//c     t2 = ga_wtime()
-//c     if(me.eq.0) write(*, 10), "bench_orig:", t2 - t1
-// 10   format (a,2x,f10.6)
-//
-//c     t1 = ga_wtime()
-//c     call bench_workq(g_a, g_b, g_c,.true.,ga_cnt,msqids)
-//c     call ga_sync()
-//c     t2 = ga_wtime()
-//c     if(me.eq.0) write(*, 10), "bench_workq:", t2 - t1
-//
-//      t1 = ga_wtime()
-//      call bench_nb(g_a, g_b, g_c)
-//      call ga_sync()
-//      t2 = ga_wtime()
-//      if(me.eq.0) write(*, 10), "bench_nb:", t2 - t1
-//
-//c     call bench_workq_mm(g_a, g_b, g_c)
-//
-//c     call ga_print(g_a)
-//c     call ga_print(g_c)
-//
-//      status = ga_destroy(g_a)
-//      if (.not.status) call pexit('ga_destroy(A) fail')
-//      status = ga_destroy(g_b)
-//      if (.not.status) call pexit('ga_destroy(B) fail')
-//      status = ga_destroy(g_c)
-//      if (.not.status) call pexit('ga_destroy(C) fail')
-//      call ga_terminate()
-//      call mpi_finalize(ierr)
-//
-//      end program psp
 
