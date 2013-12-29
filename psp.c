@@ -134,7 +134,7 @@ void bench_nb(int g_a, int g_b, int g_c) {
   index = 0;
   next = NGA_Read_inc(g_cnt, &index, 1);
 
-  ga_nbhdl_t handle_A[MAX_GETS], handle_B[MAX_GETS];
+  ga_nbhdl_t handle_A[MAX_GETS], handle_B[MAX_GETS], handle_C;
 
   unsigned int iter = 1;
   unsigned int prevID = 0;
@@ -180,9 +180,10 @@ void bench_nb(int g_a, int g_b, int g_c) {
                   &bufb[prev_color][0], tile_dim, 2.0, &bufc[prev_color][0], tile_dim);
 
       ld = tile_dim;
-      NGA_Put(g_c, &ilo, &ihi, &bufc[prev_color][0], &ld);
-//      void NGA_NbPut(int g_a, int lo[], int hi[],
-//              void* buf, int ld[], ga_nbhdl_t* nbhandle)
+//      NGA_Put(g_c, &ilo, &ihi, &bufc[prev_color][0], &ld);
+      if (iter > 1) 
+        NGA_NbWait(&handle_C);
+      NGA_NbPut(g_c, &ilo, &ihi, &bufc[prev_color][0], &ld, &handle_C);
 
       prevID = next+1;
       next = NGA_Read_inc(g_cnt, &index, 1);
@@ -204,6 +205,8 @@ void bench_nb(int g_a, int g_b, int g_c) {
       ld = tile_dim;
       NGA_Put(g_c, &ilo, &ihi, &bufc[prev_color][0], &ld);
 
+      /* This is the last task from the loop */
+      NGA_NbWait(&handle_C);
 
   t2 = GA_Wtime();
   total_time = t2 - t1;
