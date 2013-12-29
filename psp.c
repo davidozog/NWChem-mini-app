@@ -10,6 +10,21 @@
 #define TILE_DIM 2
 #define MAX_GETS 2
 
+enum bufstate { RED = 1, BLACK = 0};
+
+void swap_color(enum bufstate *color) {
+  if (*color == RED)
+    *color = BLACK;
+  else
+    *color = RED;
+}
+
+enum bufstate other_color(enum bufstate *color) {
+  if (*color == RED)
+    return BLACK;
+  else
+    return RED;
+}
 
 void print(double matrix[MAX_GETS][TILE_DIM*TILE_DIM])
 {
@@ -123,6 +138,10 @@ void bench_nb(int g_a, int g_b, int g_c) {
 
   unsigned int iter = 1;
   unsigned int prevID = 0;
+  enum bufstate color, prev_color;
+  color = RED;
+  prev_color = BLACK;
+
   ld = LOCAL_BUFLEN*nproc;
   for (i=0; i<tot_data_size/tile_size-1; i++) {
 
@@ -139,42 +158,31 @@ void bench_nb(int g_a, int g_b, int g_c) {
         }
         ilo = (next)*tile_size;
         ihi = ilo + tile_size - 1;
-        NGA_NbWait(&handle_A[0]);
-        NGA_NbWait(&handle_B[0]);
-      }
-      else if (iter==2) {
-        NGA_NbWait(&handle_A[1]);
-        NGA_NbWait(&handle_B[1]);
-        memcpy(&bufa[0][0], &bufa[1][0], sizeof(double)*tile_size);
-        memcpy(&bufb[0][0], &bufb[1][0], sizeof(double)*tile_size);
-
-        ilo = (next+1)*tile_size;
-        ihi = ilo + tile_size - 1;
-        NGA_NbGet(g_a, &ilo, &ihi, &bufa[1][0], &ld,  &handle_A[1]);
-        NGA_NbGet(g_b, &ilo, &ihi, &bufb[1][0], &ld,  &handle_B[1]);
-        ilo = (prevID)*tile_size;
-        ihi = ilo + tile_size - 1;
+        NGA_NbWait(&handle_A[BLACK]);
+        NGA_NbWait(&handle_B[BLACK]);
       }
       else {
-        NGA_NbWait(&handle_A[1]);
-        NGA_NbWait(&handle_B[1]);
-        memcpy(&bufa[0][0], &bufa[1][0], sizeof(double)*tile_size);
-        memcpy(&bufb[0][0], &bufb[1][0], sizeof(double)*tile_size);
+        NGA_NbWait(&handle_A[color]);
+        NGA_NbWait(&handle_B[color]);
+        prev_color = color;
+        swap_color(&color);
 
         ilo = (next+1)*tile_size;
         ihi = ilo + tile_size - 1;
-        NGA_NbGet(g_a, &ilo, &ihi, &bufa[1][0], &ld,  &handle_A[1]);
-        NGA_NbGet(g_b, &ilo, &ihi, &bufb[1][0], &ld,  &handle_B[1]);
+        NGA_NbGet(g_a, &ilo, &ihi, &bufa[color][0], &ld,  &handle_A[color]);
+        NGA_NbGet(g_b, &ilo, &ihi, &bufb[color][0], &ld,  &handle_B[color]);
         ilo = (prevID)*tile_size;
         ihi = ilo + tile_size - 1;
       }
 
       cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans, tile_dim, \
-                  tile_dim, tile_dim, 1.0, &bufa[0][0], tile_dim,    \
-                  &bufb[0][0], tile_dim, 2.0, &bufc[0][0], tile_dim);
+                  tile_dim, tile_dim, 1.0, &bufa[prev_color][0], tile_dim, \
+                  &bufb[prev_color][0], tile_dim, 2.0, &bufc[prev_color][0], tile_dim);
 
       ld = tile_dim;
-      NGA_Put(g_c, &ilo, &ihi, &bufc[0][0], &ld);
+      NGA_Put(g_c, &ilo, &ihi, &bufc[prev_color][0], &ld);
+//      void NGA_NbPut(int g_a, int lo[], int hi[],
+//              void* buf, int ld[], ga_nbhdl_t* nbhandle)
 
       prevID = next+1;
       next = NGA_Read_inc(g_cnt, &index, 1);
@@ -182,19 +190,19 @@ void bench_nb(int g_a, int g_b, int g_c) {
     }
     count++;
   }
-        NGA_NbWait(&handle_A[1]);
-        NGA_NbWait(&handle_B[1]);
-        memcpy(&bufa[0][0], &bufa[1][0], sizeof(double)*tile_size);
-        memcpy(&bufb[0][0], &bufb[1][0], sizeof(double)*tile_size);
+        NGA_NbWait(&handle_A[color]);
+        NGA_NbWait(&handle_B[color]);
+        prev_color = color;
+        swap_color(&color);
         memset(bufc,0,sizeof(bufc[0][0])*MAX_GETS*tile_size);
-      cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans, tile_dim, \
-                  tile_dim, tile_dim, 1.0, &bufa[0][0], tile_dim,    \
-                  &bufb[0][0], tile_dim, 2.0, &bufc[0][0], tile_dim);
+        cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans, tile_dim, \
+                  tile_dim, tile_dim, 1.0, &bufa[prev_color][0], tile_dim,    \
+                  &bufb[prev_color][0], tile_dim, 2.0, &bufc[prev_color][0], tile_dim);
         ilo = (prevID)*tile_size;
         ihi = ilo + tile_size - 1;
 
       ld = tile_dim;
-      NGA_Put(g_c, &ilo, &ihi, &bufc[0][0], &ld);
+      NGA_Put(g_c, &ilo, &ihi, &bufc[prev_color][0], &ld);
 
 
   t2 = GA_Wtime();
@@ -246,19 +254,19 @@ int main(int argc, char *argv[]) {
   NGA_Put (g_b, &ilo, &ihi, buf, &ld);
   GA_Zero(g_c);
 
-  t1 = GA_Wtime();
-  bench_orig(g_a, g_b, g_c);
-  t2 = GA_Wtime();
-  GA_Sync();
-  if (me == 0)
-    printf("Bench (Original) time taken = \%lf seconds\n", t2-t1);
-
 //  t1 = GA_Wtime();
-//  bench_nb(g_a, g_b, g_c);
+//  bench_orig(g_a, g_b, g_c);
 //  t2 = GA_Wtime();
 //  GA_Sync();
 //  if (me == 0)
-//    printf("Bench (Non-Blocking) time taken = \%lf seconds\n", t2-t1);
+//    printf("Bench (Original) time taken = \%lf seconds\n", t2-t1);
+
+  t1 = GA_Wtime();
+  bench_nb(g_a, g_b, g_c);
+  t2 = GA_Wtime();
+  GA_Sync();
+  if (me == 0)
+    printf("Bench (Non-Blocking) time taken = \%lf seconds\n", t2-t1);
 
   GA_Print(g_c);
 
