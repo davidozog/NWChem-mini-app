@@ -4,15 +4,20 @@
 #include "mafdecls.fh"
 #include "global.fh"
 #include "errquit.fh"
-#define LOCAL_BUFLEN 10000000
+c#define LOCAL_BUFLEN 1593475
+#define LOCAL_BUFLEN 100
       integer ierr, me, nproc, heap, stack, tot_data_size, ga_cnt
       integer g_a, g_b, g_c, chunk, i, ihi, ilo, jhi, jlo, ld
       integer msqids(7)
       double precision buf(LOCAL_BUFLEN), t2, t1
       logical status
 
-      heap =  96000000
-      stack = 800000000
+c     heap =  96000000
+c     heap = 223500000
+      heap = 200000000
+c     stack = 137500000
+c     stack = 1000000
+      stack = 25435450
 
       call mpi_init(ierr)
       call ga_initialize()
@@ -49,18 +54,25 @@ c   Populate GA with synthetic data (GA[i] = i)
       call ga_put(g_b, ilo, ihi, 1, 1, buf, ld)
       call ga_zero(g_c)
 
-      t1 = ga_wtime()
-      call bench_orig(g_a, g_b, g_c)
-      call ga_sync()
-      t2 = ga_wtime()
-      if(me.eq.0) write(*, 10), "bench_orig:", t2 - t1
  10   format (a,2x,f10.6)
 
+c     t1 = ga_wtime()
+c     call bench_orig(g_a, g_b, g_c)
+c     call ga_sync()
+c     t2 = ga_wtime()
+c     if(me.eq.0) write(*, 10), "bench_orig:", t2 - t1
+
       t1 = ga_wtime()
-      call bench_workq(g_a, g_b, g_c,.true.,ga_cnt,msqids)
+      call bench_nb(g_a, g_b, g_c)
       call ga_sync()
       t2 = ga_wtime()
-      if(me.eq.0) write(*, 10), "bench_workq:", t2 - t1
+      if(me.eq.0) write(*, 10), "bench_nb:", t2 - t1
+
+c    t1 = ga_wtime()
+c    call bench_workq(g_a, g_b, g_c,.true.,ga_cnt,msqids)
+c    call ga_sync()
+c    t2 = ga_wtime()
+c    if(me.eq.0) write(*, 10), "bench_workq:", t2 - t1
 
 c     call bench_workq_mm(g_a, g_b, g_c)
 
@@ -79,6 +91,7 @@ c     call ga_print(g_c)
       end program psp
 
 
+c     Original version
       subroutine bench_orig(g_a, g_b, g_c)
       implicit none
 #include "global.fh"
@@ -144,6 +157,117 @@ c10   format (a,2x,f10.6)
       end
 
 
+      integer function swap_color(color)
+      integer color
+      if (color.eq.1) then
+        swap_color = 2
+      else
+        swap_color = 1
+      end if
+      return
+      end
+
+c     Non-blocking version (not fully implemented yet):
+      subroutine bench_nb(g_a, g_b, g_c)
+      implicit none
+#include "global.fh"
+#include "mafdecls.fh"
+#include "errquit.fh"
+      integer g_a, g_b, g_c, me, nproc, num_nodes, nodeid, ch, ppn
+      integer ga_cnt, count, next, i, j, ilo, ihi, ld, tot_data_size
+      double precision bufa(LOCAL_BUFLEN, 2)
+      double precision bufb(LOCAL_BUFLEN, 2)
+      double precision bufc(LOCAL_BUFLEN, 2)
+      double precision time1, time2, total_time
+      logical status
+      integer tile_dim, tile_size
+      integer handle_a(2), handle_b(2)
+      parameter (tile_dim = 1000)
+      parameter (tile_size = tile_dim*tile_dim)
+      integer iter, prev_id, color, prev_color, k
+      integer swap_color
+
+      time1 = ga_wtime()
+
+      call ga_cluster_info(num_nodes, nodeid, ch, ppn)
+      me = ga_nodeid()
+      nproc = ga_nnodes()
+      tot_data_size = nproc * LOCAL_BUFLEN
+
+c   Create a global counter for dynamic load balancing
+      status = nga_create(MT_INT, 1, 1, 'counter', 1, ga_cnt)
+      if (.not.status) call pexit('get_task() fail')
+      CALL ga_zero(ga_cnt)
+
+      count = 0
+      next = nga_read_inc(ga_cnt, 1, 1)
+      ld = LOCAL_BUFLEN*nproc
+      iter = 1
+      prev_id = 0
+      color = 2
+      prev_color = 1
+
+c     TODO: last task...
+      do i=0,tot_data_size/tile_size-2
+        if (next.eq.count) then
+
+          do j=1,LOCAL_BUFLEN
+            do k=1,2
+              bufc(j,k) = 0.0d0
+            end do
+          end do
+
+        if (iter.eq.1) then
+          do j=1,2
+            ilo = (next+j-1)*tile_size + 1
+            ihi = ilo + tile_size - 1
+            call ga_nbget(g_a, ilo, ihi, 1, 1, bufa(1,j),ld,handle_a(j))
+            call ga_nbget(g_b, ilo, ihi, 1, 1, bufb(1,j),ld,handle_b(j))
+          end do
+          ilo = (next)*tile_size + 1
+          ihi = ilo + tile_size - 1
+          call ga_nbwait(handle_a(1))
+          call ga_nbwait(handle_b(1))
+        else
+          call ga_nbwait(handle_a(color))
+          call ga_nbwait(handle_b(color))
+          prev_color = color
+          color = swap_color(color)
+
+          ilo = (next+1)*tile_size + 1;
+          ihi = ilo + tile_size - 1;
+          call ga_nbget(g_a, ilo, ihi, 1, 1, bufa(1,color), ld,
+     &                  handle_a(color))
+          call ga_nbget(g_b, ilo, ihi, 1, 1, bufb(1,color), ld,
+     &                  handle_b(color))
+          ilo = (prev_id)*tile_size + 1;
+          ihi = ilo + tile_size - 1;
+
+        end if
+
+          call dgemm( 'T', 'N', tile_dim, tile_dim, tile_dim, 1.0d0, 
+     &                 bufa, tile_dim, bufb, tile_dim, 1.0, bufc, 
+     &                 tile_dim)
+
+          call ga_put(g_c, ilo, ihi, 1, 1, bufc, tile_dim)
+
+          prev_id = next + 1
+          next = nga_read_inc(ga_cnt, 1, 1)
+          iter = iter + 1
+        end if
+        count = count + 1
+      end do
+
+      time2 = ga_wtime()
+      total_time = time2 - time1
+
+c     if(me.eq.0) write(*, 10), "bench_nb:", total_time
+c10   format (a,2x,f10.6)
+
+      return
+      end
+
+
       subroutine bench_workq(g_a, g_b, g_c, init, ga_cnt, msqids)
       implicit none
 #include "global.fh"
@@ -169,7 +293,7 @@ c10   format (a,2x,f10.6)
       tot_data_size = nproc * LOCAL_BUFLEN
 
 c     The zeroeth proc on each node is that node's collector:
-      num_collectors = 6
+      num_collectors = 4
       collector = me - mod(me,ppn)
       a_collector = am_collector(me, collector, num_collectors) 
 
@@ -376,7 +500,7 @@ c       CALL work_queue_destroy_data(shmid)
       more_tasks = 1
       data_size = 0
       tile_size = 0
-      tile_dim = 0
+      tile_dim  = 0
       task_id = 0
       key = 0
       shmid = 0

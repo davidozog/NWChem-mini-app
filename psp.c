@@ -6,11 +6,22 @@
 #include "macdecls.h"
 #include "cblas.h"
 
-#define LOCAL_BUFLEN 100
-#define TILE_DIM 2
+#define HEAP 200000000
+#define STACK 15435450
+#define LOCAL_BUFLEN 1093475
+#define TILE_DIM 2000
+#define ITERATIONS 10
 #define MAX_GETS 2
 
-enum bufstate { RED = 1, BLACK = 0};
+
+void call_DGEMM(int tile_dim, double *a, double *b, double *c) {
+  cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans, tile_dim, \
+              tile_dim, tile_dim, 1.0, a, tile_dim, b, tile_dim, \
+              2.0, c, tile_dim);
+  return;
+}
+
+enum bufstate { RED = 1, BLACK = 0 };
 
 void swap_color(enum bufstate *color) {
   if (*color == RED)
@@ -26,8 +37,7 @@ enum bufstate other_color(enum bufstate *color) {
     return RED;
 }
 
-void print(double matrix[MAX_GETS][TILE_DIM*TILE_DIM])
-{
+void print(double matrix[MAX_GETS][TILE_DIM*TILE_DIM]) {
     int i, j;
     for (i = 0; i < MAX_GETS; ++i)
     {
@@ -37,6 +47,8 @@ void print(double matrix[MAX_GETS][TILE_DIM*TILE_DIM])
     }
 }
 
+
+/* Original version */
 void bench_orig(int g_a, int g_b, int g_c) {
 
   int me, nproc, num_nodes, nodeid, ppn, tot_data_size;
@@ -79,9 +91,7 @@ void bench_orig(int g_a, int g_b, int g_c) {
       NGA_Get(g_b, &ilo, &ihi, bufb, &ld);
 
       memset(bufc,0,sizeof(bufc));
-      cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans, tile_dim, \
-                  tile_dim, tile_dim, 1.0, bufa, tile_dim, bufb,     \
-                  tile_dim, 2.0, bufc, tile_dim);
+      call_DGEMM(tile_dim, bufa, bufb, bufc);
 
       ld = tile_dim;
       NGA_Put(g_c, &ilo, &ihi, bufc, &ld);
@@ -100,6 +110,7 @@ void bench_orig(int g_a, int g_b, int g_c) {
 }
 
 
+/* Non-blocking version */
 void bench_nb(int g_a, int g_b, int g_c) {
 
   int me, nproc, num_nodes, nodeid, ppn, tot_data_size;
@@ -175,12 +186,9 @@ void bench_nb(int g_a, int g_b, int g_c) {
         ihi = ilo + tile_size - 1;
       }
 
-      cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans, tile_dim, \
-                  tile_dim, tile_dim, 1.0, &bufa[prev_color][0], tile_dim, \
-                  &bufb[prev_color][0], tile_dim, 2.0, &bufc[prev_color][0], tile_dim);
+      call_DGEMM(tile_dim, &bufa[prev_color][0], &bufb[prev_color][0], &bufc[prev_color][0]);
 
       ld = tile_dim;
-//      NGA_Put(g_c, &ilo, &ihi, &bufc[prev_color][0], &ld);
       if (iter > 1) 
         NGA_NbWait(&handle_C);
       NGA_NbPut(g_c, &ilo, &ihi, &bufc[prev_color][0], &ld, &handle_C);
@@ -220,8 +228,8 @@ void bench_nb(int g_a, int g_b, int g_c) {
 int main(int argc, char *argv[]) {
 
   int heap, stack;
-  heap =  96000000;
-  stack = 80000000;
+  heap =  HEAP;
+  stack = STACK;
 
   int me, nproc, i, tot_data_size;
   int n, g_a, g_b, g_c;
@@ -229,14 +237,14 @@ int main(int argc, char *argv[]) {
   double buf[LOCAL_BUFLEN], t1, t2;
 
   MPI_Init(&argc, &argv);
-  GA_Initialize();                           /* initialize GA */
+  GA_Initialize();
 
   me = GA_Nodeid(); 
   nproc = GA_Nnodes();
   tot_data_size = nproc * LOCAL_BUFLEN;
 
   if(! MA_init(C_DBL, stack, heap)) 
-       GA_Error("MA_init failed",stack+heap);  /* initialize memory allocator*/ 
+       GA_Error("MA_init failed",stack+heap);  
 
 /* This mimics the creation of T2/V2 in tce_energy.F */
   n = LOCAL_BUFLEN*nproc;
@@ -257,21 +265,23 @@ int main(int argc, char *argv[]) {
   NGA_Put (g_b, &ilo, &ihi, buf, &ld);
   GA_Zero(g_c);
 
-//  t1 = GA_Wtime();
-//  bench_orig(g_a, g_b, g_c);
-//  t2 = GA_Wtime();
-//  GA_Sync();
-//  if (me == 0)
-//    printf("Bench (Original) time taken = \%lf seconds\n", t2-t1);
-
   t1 = GA_Wtime();
-  bench_nb(g_a, g_b, g_c);
+  for (i=0; i<ITERATIONS; i++)
+    bench_orig(g_a, g_b, g_c);
   t2 = GA_Wtime();
   GA_Sync();
   if (me == 0)
-    printf("Bench (Non-Blocking) time taken = \%lf seconds\n", t2-t1);
+    printf("Bench (Original) time taken = \%lf seconds\n", t2-t1);
 
-  GA_Print(g_c);
+//  t1 = GA_Wtime();
+//  for (i=0; i<ITERATIONS; i++)
+//  bench_nb(g_a, g_b, g_c);
+//  t2 = GA_Wtime();
+//  GA_Sync();
+//  if (me == 0)
+//    printf("Bench (Non-Blocking) time taken = \%lf seconds\n", t2-t1);
+
+//  GA_Print(g_c);
 
   GA_Destroy(g_a);  GA_Destroy(g_b);  GA_Destroy(g_c);
 

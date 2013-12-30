@@ -1,6 +1,6 @@
-GA = /home/dave/usr/local/ga-5-2
+GA = /global/homes/o/ozog/usr/local/ga-5-2-gcc
 WORKQ = ./workq
-BLAS = /home/dave/usr/local/openblas64
+BLAS = /global/homes/o/ozog/usr/local/openblas64
 
 
 all:
@@ -10,6 +10,7 @@ all:
 
 tau:
 	tau_f77.sh -fdefault-integer-8 -I ${GA}/include -L${GA}/lib psp.F -L${WORKQ} -L${BLAS}/lib -o psp.tau -lga -larmci -lworkq -lopenblas
+	tau_cc.sh -g -I ${GA}/include -I ${BLAS}/include -L${GA}/lib psp.c -L${WORKQ} -L${BLAS}/lib -o cpsp.tau -lga -lTauARMCIWrapper -larmci -lworkq -lopenblas
 
 clean:
 	rm psp.o psp psp.tau
