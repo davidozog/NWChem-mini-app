@@ -11,7 +11,7 @@
 #define LOCAL_BUFLEN 1093475
 #define TILE_DIM 2000
 #define ITERATIONS 10
-#define MAX_GETS 2
+#define NUM_BUFS 2
 
 
 void call_DGEMM(int tile_dim, double *a, double *b, double *c) {
@@ -19,32 +19,6 @@ void call_DGEMM(int tile_dim, double *a, double *b, double *c) {
               tile_dim, tile_dim, 1.0, a, tile_dim, b, tile_dim, \
               2.0, c, tile_dim);
   return;
-}
-
-enum bufstate { RED = 1, BLACK = 0 };
-
-void swap_color(enum bufstate *color) {
-  if (*color == RED)
-    *color = BLACK;
-  else
-    *color = RED;
-}
-
-enum bufstate other_color(enum bufstate *color) {
-  if (*color == RED)
-    return BLACK;
-  else
-    return RED;
-}
-
-void print(double matrix[MAX_GETS][TILE_DIM*TILE_DIM]) {
-    int i, j;
-    for (i = 0; i < MAX_GETS; ++i)
-    {
-        for (j = 0; j < TILE_DIM*TILE_DIM; ++j)
-            printf("%f ", matrix[i][j]);
-        printf("\n");
-    }
 }
 
 
@@ -109,6 +83,33 @@ void bench_orig(int g_a, int g_b, int g_c) {
   return;
 }
 
+/* Structs/methods for non-blocking version: */
+enum bufstate { RED = 1, BLACK = 0 };
+
+void swap_color(enum bufstate *color) {
+  if (*color == RED)
+    *color = BLACK;
+  else
+    *color = RED;
+}
+
+enum bufstate other_color(enum bufstate *color) {
+  if (*color == RED)
+    return BLACK;
+  else
+    return RED;
+}
+
+void print(double matrix[NUM_BUFS][TILE_DIM*TILE_DIM]) {
+    int i, j;
+    for (i = 0; i < NUM_BUFS; ++i)
+    {
+        for (j = 0; j < TILE_DIM*TILE_DIM; ++j)
+            printf("%f ", matrix[i][j]);
+        printf("\n");
+    }
+}
+
 
 /* Non-blocking version */
 void bench_nb(int g_a, int g_b, int g_c) {
@@ -127,12 +128,12 @@ void bench_nb(int g_a, int g_b, int g_c) {
   ppn = GA_Cluster_nprocs(nodeid);
   tot_data_size = nproc * LOCAL_BUFLEN;
 
-  double bufa[MAX_GETS][tile_size]; 
-  double bufb[MAX_GETS][tile_size]; 
-  double bufc[MAX_GETS][tile_size];
+  double bufa[NUM_BUFS][tile_size]; 
+  double bufb[NUM_BUFS][tile_size]; 
+  double bufc[NUM_BUFS][tile_size];
 
-  memset(bufa,0,sizeof(bufa[0][0])*MAX_GETS*tile_size);
-  memset(bufb,0,sizeof(bufb[0][0])*MAX_GETS*tile_size);
+  memset(bufa,0,sizeof(bufa[0][0])*NUM_BUFS*tile_size);
+  memset(bufb,0,sizeof(bufb[0][0])*NUM_BUFS*tile_size);
 
   t1 = GA_Wtime();
 
@@ -145,7 +146,7 @@ void bench_nb(int g_a, int g_b, int g_c) {
   index = 0;
   next = NGA_Read_inc(g_cnt, &index, 1);
 
-  ga_nbhdl_t handle_A[MAX_GETS], handle_B[MAX_GETS], handle_C;
+  ga_nbhdl_t handle_A[NUM_BUFS], handle_B[NUM_BUFS], handle_C;
 
   unsigned int iter = 1;
   unsigned int prevID = 0;
@@ -158,10 +159,10 @@ void bench_nb(int g_a, int g_b, int g_c) {
 
     if (next == count) {
 
-      memset(bufc,0,sizeof(bufc[0][0])*MAX_GETS*tile_size);
+      memset(bufc,0,sizeof(bufc[0][0])*NUM_BUFS*tile_size);
 
       if (iter==1) {
-        for (j=0; j<MAX_GETS; j++) {
+        for (j=0; j<NUM_BUFS; j++) {
           ilo = (next+j)*tile_size;
           ihi = ilo + tile_size - 1;
           NGA_NbGet(g_a, &ilo, &ihi, &bufa[j][0], &ld,  &handle_A[j]);
@@ -203,7 +204,7 @@ void bench_nb(int g_a, int g_b, int g_c) {
         NGA_NbWait(&handle_B[color]);
         prev_color = color;
         swap_color(&color);
-        memset(bufc,0,sizeof(bufc[0][0])*MAX_GETS*tile_size);
+        memset(bufc,0,sizeof(bufc[0][0])*NUM_BUFS*tile_size);
         cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans, tile_dim, \
                   tile_dim, tile_dim, 1.0, &bufa[prev_color][0], tile_dim,    \
                   &bufb[prev_color][0], tile_dim, 2.0, &bufc[prev_color][0], tile_dim);
