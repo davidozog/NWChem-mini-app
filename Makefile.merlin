@@ -1,6 +1,6 @@
-GA = /global/homes/o/ozog/usr/local/ga-5-2-gcc
+GA = /home/dave/usr/local/ga-5-2
 WORKQ = ./workq
-BLAS = /global/homes/o/ozog/usr/local/openblas64
+BLAS = /home/dave/usr/local/openblas64
 
 
 all:

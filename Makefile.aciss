@@ -13,4 +13,4 @@ tau:
 	tau_cc.sh -g -I ${GA}/include -I ${BLAS}/include -L${GA}/lib bench.c -L${WORKQ} -L${BLAS}/lib -o cbench.tau -lga -lTauARMCIWrapper -larmci -lworkq -lopenblas
 
 clean:
-	rm bench.o bench bench.tau
+	rm bench.o bench bench.tau cbench cbench.tau

@@ -1,7 +1,7 @@
-GA = /home11/ozog/usr/local/ga-5-2-mpich
-INC = /home11/ozog/usr/local/openblas64/include
-FTOKM = "/home11/ozog/sand/somefile"
-FTOKD = "/home11/ozog/sand/datafile"
+GA = /home/dave/usr/local/ga-5-2
+INC = /home/dave/usr/local/openblas64/include
+FTOKM = "/home/dave/sand/somefile"
+FTOKD = "/home/dave/sand/datafile"
 
 all:
 	#mpicc -c work_queue_add.c
