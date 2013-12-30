@@ -1,4 +1,4 @@
-      program psp
+      program bench
       implicit none
 #include "mpif.h"
 #include "mafdecls.fh"
@@ -88,7 +88,7 @@ c     call ga_print(g_c)
       call ga_terminate()
       call mpi_finalize(ierr)
 
-      end program psp
+      end program bench
 
 
 c     Original version

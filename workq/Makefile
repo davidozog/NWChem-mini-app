@@ -1,5 +1,5 @@
-GA = /home/dave/usr/local/ga-5-2
-INC = /home/dave/usr/local/openblas/include
+GA = /global/homes/o/ozog/usr/local/ga-5-2
+INC = /global/homes/o/ozog/usr/local/openblas64/include
 
 all:
 	#mpicc -c work_queue_add.c

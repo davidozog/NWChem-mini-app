@@ -6,8 +6,8 @@
 #define MAXMICROTASKS 64
 #define NUM_MSGQS 1
 #define NUM_QUEUES 1
-#define FTOK_FILEPATH "/home/dave/sand/somefile"
-#define FTOK_DATAPATH "/home/dave/sand/datafile"
+#define FTOK_FILEPATH "/global/homes/o/ozog/somefile"
+#define FTOK_DATAPATH "/global/homes/o/ozog/datafile"
 
 /* Specific to macro-task: */
 struct num_tasks {
