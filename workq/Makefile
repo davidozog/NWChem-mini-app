@@ -1,4 +1,4 @@
-GA = /global/homes/o/ozog/usr/local/ga-5-2
+GA = /global/homes/o/ozog/usr/local/ga-5-2-gcc
 INC = /global/homes/o/ozog/usr/local/openblas64/include
 FTOKM = "/global/homes/o/ozog/somefile"
 FTOKD = "/global/homes/o/ozog/datafile"
@@ -19,7 +19,7 @@ tau:
 	#mpicc -c work_queue_create.c
 	#mpicc -c work_queue_destroy.c
 	#mpicc -c work_queue_get.c
-	tau_cc.sh -Wall -fPIC -c *.c -I ${GA}/include -I ${INC} -L${GA}/lib
+	tau_cc.sh -Wall -fPIC -DFTOKM=\"${FTOKM}\" -DFTOKD=\"${FTOKD}\"-c *.c -I ${GA}/include -I ${INC} -L${GA}/lib
 	tau_f77.sh -fPIC -c -fdefault-integer-8 -I ${GA}/include -L${GA}/lib ga_cluster_info.F
 	tau_cc.sh -shared -Wl,-soname,libworkq.so.1 -o libworkq.so.1.0   *.o
 	ln -sf libworkq.so.1.0 libworkq.so.1
