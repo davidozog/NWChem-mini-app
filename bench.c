@@ -9,8 +9,8 @@
 #define HEAP 200000000
 #define STACK 15435450
 //#define LOCAL_BUFLEN 1093475
-#define LOCAL_BUFLEN 100
-#define TILE_DIM 2
+#define LOCAL_BUFLEN 10
+#define TILE_DIM 3
 #define ITERATIONS 1
 #define NUM_BUFS 2
 
@@ -159,7 +159,7 @@ void bench_nb(int g_a, int g_b, int g_c) {
 
   count = 0;
   index = 0;
-  next = NGA_Read_inc(g_cnt, &index, 2);
+  next = NGA_Read_inc(g_cnt, &index, 1);
 
   ga_nbhdl_t handle_A[NUM_BUFS], handle_B[NUM_BUFS], handle_C;
 
@@ -172,8 +172,8 @@ void bench_nb(int g_a, int g_b, int g_c) {
   ld = LOCAL_BUFLEN*nproc;
 
   printf("me:%d, next:%d\n", me, next);
-
-  for (i=0; i<tot_data_size/tile_size-1; i++) {
+  
+  for (i=0; i<tot_data_size/tile_size; i++) {
 
     if (next == count) {
 
@@ -181,14 +181,22 @@ void bench_nb(int g_a, int g_b, int g_c) {
 
       if (iter==1) {
         printf("%d (1 iter) t:%d\n", me, next);
-        for (j=0; j<NUM_BUFS; j++) {
-          ilo = (next+j)*tile_size;
-          ihi = ilo + tile_size - 1;
-          NGA_NbGet(g_a, &ilo, &ihi, &bufa[j][0], &ld,  &handle_A[j]);
-          NGA_NbGet(g_b, &ilo, &ihi, &bufb[j][0], &ld,  &handle_B[j]);
+        ilo = next * tile_size;
+        ihi = ilo + tile_size - 1;
+        NGA_NbGet(g_a, &ilo, &ihi, &bufa[BLACK][0], &ld,  &handle_A[BLACK]);
+        NGA_NbGet(g_b, &ilo, &ihi, &bufb[BLACK][0], &ld,  &handle_B[BLACK]);
+
+        prevID = next;
+        next = NGA_Read_inc(g_cnt, &index, 1);
+        ilo = next * tile_size;
+        ihi = ilo + tile_size - 1;
+        printf("%d (1 iter) t:%d, ilo=%d, ihi=%d\n", me, next, ilo, ihi);
+        if (ihi<=tot_data_size) {
+          NGA_NbGet(g_a, &ilo, &ihi, &bufa[RED][0], &ld,  &handle_A[RED]);
+          NGA_NbGet(g_b, &ilo, &ihi, &bufb[RED][0], &ld,  &handle_B[RED]);
         }
-        printf("\n");
-        ilo = (next)*tile_size;
+
+        ilo = prevID * tile_size;
         ihi = ilo + tile_size - 1;
         NGA_NbWait(&handle_A[BLACK]);
         NGA_NbWait(&handle_B[BLACK]);
@@ -200,11 +208,16 @@ void bench_nb(int g_a, int g_b, int g_c) {
         prev_color = color;
         swap_color(&color);
 
-        ilo = (next+1)*tile_size;
+        prevID = next;
+        next = NGA_Read_inc(g_cnt, &index, 1);
+
+        ilo = next * tile_size;
         ihi = ilo + tile_size - 1;
-        NGA_NbGet(g_a, &ilo, &ihi, &bufa[color][0], &ld,  &handle_A[color]);
-        NGA_NbGet(g_b, &ilo, &ihi, &bufb[color][0], &ld,  &handle_B[color]);
-        ilo = (prevID)*tile_size;
+        if (ihi<=tot_data_size) {
+          NGA_NbGet(g_a, &ilo, &ihi, &bufa[color][0], &ld,  &handle_A[color]);
+          NGA_NbGet(g_b, &ilo, &ihi, &bufb[color][0], &ld,  &handle_B[color]);
+        }
+        ilo = prevID * tile_size;
         ihi = ilo + tile_size - 1;
       }
 
@@ -213,21 +226,17 @@ void bench_nb(int g_a, int g_b, int g_c) {
       ld = tile_dim;
       if (iter > 1) 
         NGA_NbWait(&handle_C);
-      else {
-        if (me==0) next = NGA_Read_inc(g_cnt, &index, -1);
-        GA_Sync();
-      }
       NGA_NbPut(g_c, &ilo, &ihi, &bufc[prev_color][0], &ld, &handle_C);
 
-      prevID = next+1;
-      next = NGA_Read_inc(g_cnt, &index, 1);
+      prevID = next;
+      //next = NGA_Read_inc(g_cnt, &index, 1);
       iter++;
     }
     count++;
   }
   if (me==0) printf("FINAL COUNT:%d\n", count);
 
-  if (prevID > 0 && prevID <= count) {
+  if (prevID > 0 && prevID < count) {
         NGA_NbWait(&handle_A[color]);
         NGA_NbWait(&handle_B[color]);
         prev_color = color;
@@ -294,23 +303,23 @@ int main(int argc, char *argv[]) {
   NGA_Put (g_b, &ilo, &ihi, buf, &ld);
   GA_Zero(g_c);
 
-//  t1 = GA_Wtime();
-//  for (i=0; i<ITERATIONS; i++) {
-//    bench_orig(g_a, g_b, g_c);
-//  }
-//  GA_Sync();
-//  t2 = GA_Wtime();
-//  if (me == 0)
-//    printf("Bench (Original) time taken = \%lf seconds\n", t2-t1);
-
   t1 = GA_Wtime();
   for (i=0; i<ITERATIONS; i++) {
-    bench_nb(g_a, g_b, g_c);
+    bench_orig(g_a, g_b, g_c);
   }
   GA_Sync();
   t2 = GA_Wtime();
   if (me == 0)
-    printf("Bench (Non-Blocking) time taken = \%lf seconds\n", t2-t1);
+    printf("Bench (Original) time taken = \%lf seconds\n", t2-t1);
+
+//  t1 = GA_Wtime();
+//  for (i=0; i<ITERATIONS; i++) {
+//    bench_nb(g_a, g_b, g_c);
+//  }
+//  GA_Sync();
+//  t2 = GA_Wtime();
+//  if (me == 0)
+//    printf("Bench (Non-Blocking) time taken = \%lf seconds\n", t2-t1);
 
   GA_Print(g_c);
 
