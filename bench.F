@@ -4,11 +4,12 @@
 #include "mafdecls.fh"
 #include "global.fh"
 #include "errquit.fh"
-c#define LOCAL_BUFLEN 1593475
-#define LOCAL_BUFLEN 100
+#define LOCAL_BUFLEN 1093475
       integer ierr, me, nproc, heap, stack, tot_data_size, ga_cnt
       integer g_a, g_b, g_c, chunk, i, ihi, ilo, jhi, jlo, ld
       integer msqids(7)
+      integer tile_dim, num_collectors
+      character(len=32) :: arg
       double precision buf(LOCAL_BUFLEN), t2, t1
       logical status
 
@@ -17,7 +18,8 @@ c     heap = 223500000
       heap = 200000000
 c     stack = 137500000
 c     stack = 1000000
-      stack = 25435450
+c     stack = 25435450
+      stack = 20435450
 
       call mpi_init(ierr)
       call ga_initialize()
@@ -25,6 +27,17 @@ c     stack = 1000000
       me = ga_nodeid()
       nproc = ga_nnodes()
       tot_data_size = nproc * LOCAL_BUFLEN
+
+c   Command line Arguments (tile_size and num collector procs)
+ 20   format (a,2x,i5)
+      call getarg(1, arg)
+      read (arg,*) tile_dim
+      if(me.eq.0) write(*, 20), "tile_dim:", tile_dim
+
+      call getarg(2, arg)
+      read (arg,*) num_collectors
+      if(me.eq.0) write(*, 20), "num_collectors:", num_collectors 
+
 
       if (.not.ma_init(MT_DBL, stack, heap))
      +   call ga_error("ma_init failed",-1)
@@ -56,23 +69,24 @@ c   Populate GA with synthetic data (GA[i] = i)
 
  10   format (a,2x,f10.6)
 
-c     t1 = ga_wtime()
-c     call bench_orig(g_a, g_b, g_c)
-c     call ga_sync()
-c     t2 = ga_wtime()
-c     if(me.eq.0) write(*, 10), "bench_orig:", t2 - t1
-
       t1 = ga_wtime()
-      call bench_nb(g_a, g_b, g_c)
+      call bench_orig(g_a, g_b, g_c, tile_dim)
       call ga_sync()
       t2 = ga_wtime()
-      if(me.eq.0) write(*, 10), "bench_nb:", t2 - t1
+      if(me.eq.0) write(*, 10), "bench_orig:", t2 - t1
 
-c    t1 = ga_wtime()
-c    call bench_workq(g_a, g_b, g_c,.true.,ga_cnt,msqids)
-c    call ga_sync()
-c    t2 = ga_wtime()
-c    if(me.eq.0) write(*, 10), "bench_workq:", t2 - t1
+c     t1 = ga_wtime()
+c     call bench_nb(g_a, g_b, g_c)
+c     call ga_sync()
+c     t2 = ga_wtime()
+c     if(me.eq.0) write(*, 10), "bench_nb:", t2 - t1
+
+      t1 = ga_wtime()
+      call bench_workq(g_a, g_b, g_c,.true.,ga_cnt,msqids,
+     &                 tile_dim, num_collectors)
+      call ga_sync()
+      t2 = ga_wtime()
+      if(me.eq.0) write(*, 10), "bench_workq:", t2 - t1
 
 c     call bench_workq_mm(g_a, g_b, g_c)
 
@@ -92,7 +106,7 @@ c     call ga_print(g_c)
 
 
 c     Original version
-      subroutine bench_orig(g_a, g_b, g_c)
+      subroutine bench_orig(g_a, g_b, g_c, tile_dim)
       implicit none
 #include "global.fh"
 #include "mafdecls.fh"
@@ -105,11 +119,10 @@ c     Original version
       double precision time1, time2, total_time
       logical status
       integer tile_dim, tile_size
-      parameter (tile_dim = 1000)
-      parameter (tile_size = tile_dim*tile_dim)
       integer k
 
       time1 = ga_wtime()
+      tile_size = tile_dim*tile_dim
 
       call ga_cluster_info(num_nodes, nodeid, ch, ppn)
       me = ga_nodeid()
@@ -168,7 +181,7 @@ c10   format (a,2x,f10.6)
       end
 
 c     Non-blocking version (not fully implemented yet):
-      subroutine bench_nb(g_a, g_b, g_c)
+      subroutine bench_nb(g_a, g_b, g_c, tile_dim)
       implicit none
 #include "global.fh"
 #include "mafdecls.fh"
@@ -182,12 +195,11 @@ c     Non-blocking version (not fully implemented yet):
       logical status
       integer tile_dim, tile_size
       integer handle_a(2), handle_b(2)
-      parameter (tile_dim = 1000)
-      parameter (tile_size = tile_dim*tile_dim)
       integer iter, prev_id, color, prev_color, k
       integer swap_color
 
       time1 = ga_wtime()
+      tile_size = tile_dim*tile_dim
 
       call ga_cluster_info(num_nodes, nodeid, ch, ppn)
       me = ga_nodeid()
@@ -268,7 +280,8 @@ c10   format (a,2x,f10.6)
       end
 
 
-      subroutine bench_workq(g_a, g_b, g_c, init, ga_cnt, msqids)
+      subroutine bench_workq(g_a, g_b, g_c, init, ga_cnt, msqids,
+     &                       tile_dim, num_collectors)
       implicit none
 #include "global.fh"
 #include "mafdecls.fh"
@@ -281,10 +294,9 @@ c10   format (a,2x,f10.6)
       logical status, a_collector, am_collector, init
       integer num_collectors, msqids(7), sem, collector
       integer tile_dim, tile_size
-      parameter (tile_dim = 1000)
-      parameter (tile_size = tile_dim*tile_dim)
 
       time1 = ga_wtime()
+      tile_size = tile_dim*tile_dim
       sem = 0
 
       call ga_cluster_info(num_nodes, nodeid, ch, ppn)
@@ -293,7 +305,7 @@ c10   format (a,2x,f10.6)
       tot_data_size = nproc * LOCAL_BUFLEN
 
 c     The zeroeth proc on each node is that node's collector:
-      num_collectors = 4
+c     num_collectors = 4
       collector = me - mod(me,ppn)
       a_collector = am_collector(me, collector, num_collectors) 
 
@@ -340,7 +352,7 @@ c         call ga_get(g_b, ilo, ihi, 1, 1, bufb, ld)
           call work_queue_append_task_single(next, tile_dim, g_a, g_b, 
      &                                       ld, bufa, bufb)
           t2 = ga_wtime()
-          write(*, 20), "GET(", me, "):", t2 - t1
+c         write(*, 20), "GET(", me, "):", t2 - t1
  20     format (a,i2,a,2x,f10.6)
           call work_queue_add_single(msqids, next, tile_dim, me, nodeid,
      &                         ppn, a_collector)
@@ -358,7 +370,7 @@ c         call ga_get(g_b, ilo, ihi, 1, 1, bufb, ld)
         count = count + 1
       end do
 
-      if(me.eq.0) write(*,11), "total tasks: ", count
+c     if(me.eq.0) write(*,11), "total tasks: ", count
  11   format (a,2x,i5)
 
       CALL work_queue_sem_release(nodeid)
@@ -394,10 +406,9 @@ c10   format (a,2x,f10.6)
       logical status
       integer num_collectors, msqids(7), sem, collector
       integer tile_dim, tile_size
-      parameter (tile_dim = 1000)
-      parameter (tile_size = tile_dim*tile_dim)
 
       time1 = ga_wtime()
+      tile_size = tile_dim*tile_dim
       sem = 0
 
       call ga_cluster_info(num_nodes, nodeid, ch, ppn)
@@ -536,7 +547,7 @@ c         print *, "R:", me, "QLEN IS ZERO"
             call work_queue_execute_task_single(bufc,
      &                tile_dim, 1.0d0, 2.0d0,'T','N',me)
             t2 = ga_wtime()
-            write(*, 20), "DGEMM(", me, "):", t2 - t1
+c           write(*, 20), "DGEMM(", me, "):", t2 - t1
  20         format (a,i2,a,2x,f10.6)
 
 

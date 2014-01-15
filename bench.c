@@ -10,7 +10,7 @@
 #define STACK 15435450
 #define LOCAL_BUFLEN 1093475
 //#define LOCAL_BUFLEN 10
-#define TILE_DIM 100
+#define TILE_DIM 1000
 #define ITERATIONS 10
 #define NUM_BUFS 2
 

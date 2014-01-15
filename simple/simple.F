@@ -4,7 +4,8 @@
 #include "mafdecls.fh"
 #include "global.fh"
 #include "errquit.fh"
-#define LOCAL_BUFLEN 3125000
+c#define LOCAL_BUFLEN 3125000
+#define LOCAL_BUFLEN 100
       integer ierr, me, nproc, heap, stack, tot_data_size, ga_cnt
       integer g_a, g_b, g_c, chunk, i, ihi, ilo, jhi, jlo, ld
       integer msqids(7)
@@ -14,8 +15,8 @@
       double precision bufc(LOCAL_BUFLEN)
       logical status
 
-      heap =  96000000
-      stack = 96000000
+      heap =  16000000
+      stack = 16000000
 
       call mpi_init(ierr)
       call ga_initialize()
@@ -68,14 +69,14 @@ c   Populate local buffers with slightly differen data (X[i] = i)
         write(*,*) ""
       end if
 
-      time1 = ga_wtime()
-      call bench_overlap(g_a, g_b, g_c, bufa, bufb, bufc)
-      call ga_sync()
-      time2 = ga_wtime()
-      if (me.eq.0) then
-        write(*, 10), "Total time:", time2 - time1
- 20     format (a,2x,f10.6)
-      end if
+c     time1 = ga_wtime()
+c     call bench_overlap(g_a, g_b, g_c, bufa, bufb, bufc)
+c     call ga_sync()
+c     time2 = ga_wtime()
+c     if (me.eq.0) then
+c       write(*, 10), "Total time:", time2 - time1
+c20     format (a,2x,f10.6)
+c     end if
 
 c     call ga_print(g_a)
 c     call ga_print(g_c)
@@ -130,9 +131,9 @@ C     If a lower process on node, get GA data and overwrite local data
 C     If a higher process do a DGEMM on local data
       if (mod(me,num_nodes).ge.(ppn/2)) then
         time1 = ga_wtime()
-        call dgemm( 'T', 'N', tile_dim, tile_dim, tile_dim, 
-     &               1.0d0, bufa, tile_dim, bufb, tile_dim,
-     &               1.0, bufc, tile_dim)
+c       call dgemm( 'T', 'N', tile_dim, tile_dim, tile_dim, 
+c    &               1.0d0, bufa, tile_dim, bufb, tile_dim,
+c    &               1.0, bufc, tile_dim)
         time2 = ga_wtime()
         total_time = time2 - time1
         write(*, 10), "DGEMM(", me, "):", total_time
@@ -178,9 +179,9 @@ C     If a lower process on node, get GA data and overwrite local data
       else
 C     If a higher process do a DGEMM on local data
         time1 = ga_wtime()
-        call dgemm( 'T', 'N', tile_dim, tile_dim, tile_dim, 
-     &               1.0d0, bufa, tile_dim, bufb, tile_dim,
-     &               1.0, bufc, tile_dim)
+c       call dgemm( 'T', 'N', tile_dim, tile_dim, tile_dim, 
+c    &               1.0d0, bufa, tile_dim, bufb, tile_dim,
+c    &               1.0, bufc, tile_dim)
         time2 = ga_wtime()
         total_time = time2 - time1
         write(*, 10), "DGEMM(", me, "):", total_time
