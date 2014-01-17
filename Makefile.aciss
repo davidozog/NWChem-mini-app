@@ -1,6 +1,6 @@
-GA = /home11/ozog/usr/local/ga-5-2-mpich
+GA = /home11/ozog/usr/local/ga-5-2
 WORKQ = ./workq
-INC = /home11/ozog/usr/local/openblas64
+BLAS = /home11/ozog/usr/local/openblas64
 
 
 all:

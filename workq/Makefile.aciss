@@ -1,5 +1,5 @@
 GA = /home11/ozog/usr/local/ga-5-2-mpich
-BLAS = /global/homes/o/ozog/usr/local/openblas64
+BLAS = ${HOME}/usr/local/openblas64
 FTOKM = "/home11/ozog/sand/somefile"
 FTOKD = "/home11/ozog/sand/datafile"
 
