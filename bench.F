@@ -149,9 +149,7 @@ c   Create a global counter for dynamic load balancing
             bufc(j) = 0.0d0
           end do
 
-          call dgemm( 'T', 'N', tile_dim, tile_dim, tile_dim, 1.0d0, 
-     &                 bufa, tile_dim, bufb, tile_dim, 1.0, bufc, 
-     &                 tile_dim)
+        call dgemm_wrap(tile_dim, bufa, bufb, bufc)
 
           call ga_put(g_c, ilo, ihi, 1, 1, bufc, tile_dim)
 
@@ -257,9 +255,7 @@ c     TODO: last task...
 
         end if
 
-          call dgemm( 'T', 'N', tile_dim, tile_dim, tile_dim, 1.0d0, 
-     &                 bufa, tile_dim, bufb, tile_dim, 1.0, bufc, 
-     &                 tile_dim)
+        call dgemm_wrap(tile_dim, bufa, bufb, bufc)
 
           call ga_put(g_c, ilo, ihi, 1, 1, bufc, tile_dim)
 
@@ -279,6 +275,17 @@ c10   format (a,2x,f10.6)
       return
       end
 
+      subroutine dgemm_wrap(tile_dim, bufa, bufb, bufc)
+      integer tile_dim
+      double precision bufa(LOCAL_BUFLEN)
+      double precision bufb(LOCAL_BUFLEN)
+      double precision bufc(LOCAL_BUFLEN)
+
+          call dgemm( 'T', 'N', tile_dim, tile_dim, tile_dim, 1.0d0, 
+     &                 bufa, tile_dim, bufb, tile_dim, 1.0, bufc, 
+     &                 tile_dim)
+      return
+      end
 
       subroutine bench_workq(g_a, g_b, g_c, init, ga_cnt, msqids,
      &                       tile_dim, num_collectors)
