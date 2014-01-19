@@ -4,7 +4,12 @@
 #include "mafdecls.fh"
 #include "global.fh"
 #include "errquit.fh"
-#define LOCAL_BUFLEN 1093475
+c     Carver 8n/8ppn
+c#define LOCAL_BUFLEN 1093475
+c     ACISS 8n/8ppn
+#define LOCAL_BUFLEN 3093475
+c#define LOCAL_BUFLEN 100
+c#define LOCAL_BUFLEN 10
       integer ierr, me, nproc, heap, stack, tot_data_size, ga_cnt
       integer g_a, g_b, g_c, chunk, i, ihi, ilo, jhi, jlo, ld
       integer msqids(7)
@@ -13,13 +18,15 @@
       double precision buf(LOCAL_BUFLEN), t2, t1
       logical status
 
-c     heap =  96000000
-c     heap = 223500000
-      heap = 200000000
-c     stack = 137500000
-c     stack = 1000000
+      character*(256) hostname
+
+c     Carver 8 ppn:
+c     heap = 200000000
 c     stack = 25435450
-      stack = 20435450
+
+c     ACISS 12 ppn:
+      heap = 200000000
+      stack = 50000000
 
       call mpi_init(ierr)
       call ga_initialize()
@@ -69,11 +76,11 @@ c   Populate GA with synthetic data (GA[i] = i)
 
  10   format (a,2x,f10.6)
 
-      t1 = ga_wtime()
-      call bench_orig(g_a, g_b, g_c, tile_dim)
-      call ga_sync()
-      t2 = ga_wtime()
-      if(me.eq.0) write(*, 10), "bench_orig:", t2 - t1
+c     t1 = ga_wtime()
+c     call bench_orig(g_a, g_b, g_c, tile_dim)
+c     call ga_sync()
+c     t2 = ga_wtime()
+c     if(me.eq.0) write(*, 10), "bench_orig:", t2 - t1
 
 c     t1 = ga_wtime()
 c     call bench_nb(g_a, g_b, g_c)
@@ -327,7 +334,6 @@ c     num_collectors = 4
         end if
       end if
 
-
 c   Create a global counter for dynamic load balancing
       if (init) then
         status = nga_create(MT_INT, 1, 1, 'counter', 1, ga_cnt)
@@ -367,7 +373,8 @@ c         write(*, 20), "GET(", me, "):", t2 - t1
           CALL work_queue_sem_release(nodeid)
 
           if (.not.a_collector) then
-              CALL worker(g_a, g_b, g_c, ga_cnt, msqids, num_collectors)
+              CALL worker(g_a, g_b, g_c, ga_cnt, msqids, tile_dim, 
+     &                    num_collectors)
               return
           end if 
 
@@ -390,7 +397,8 @@ c     if(me.eq.0) write(*,11), "total tasks: ", count
 
       end if
 
-      CALL worker(g_a, g_b, g_c, ga_cnt, msqids, num_collectors)
+      CALL worker(g_a, g_b, g_c, ga_cnt, msqids, tile_dim,
+     &            num_collectors)
 
 c     if(me.eq.0) write(*, 10), "bench_workq:", total_time
 c10   format (a,2x,f10.6)
@@ -498,7 +506,8 @@ c       CALL work_queue_destroy_data(shmid)
       end
       
 
-      subroutine worker(g_a, g_b, g_c, ga_cnt, msqids, num_collectors)
+      subroutine worker(g_a, g_b, g_c, ga_cnt, msqids, td, 
+     &                  num_collectors)
       implicit none
 #include "global.fh"
       integer g_a, g_b, g_c, ga_cnt, msqids(7), num_collectors, nproc
@@ -508,7 +517,7 @@ c       CALL work_queue_destroy_data(shmid)
       double precision bufc(LOCAL_BUFLEN), t2, t1
       integer ilo, ihi, ld
       character*(256) hostname
-      integer j
+      integer j, td
 
       me = ga_nodeid()
       nproc = ga_nnodes()
@@ -532,7 +541,8 @@ c       CALL work_queue_destroy_data(shmid)
         call work_queue_get_max_qlen(nodeid, msqids, qlen, qid)
         if (qlen.eq.0) then
 c         print *, "R:", me, "QLEN IS ZERO"
-          call bench_workq(g_a, g_b, g_c,.false.,ga_cnt,msqids)
+          call bench_workq(g_a, g_b, g_c,.false.,ga_cnt,msqids, 
+     &                     td, num_collectors)
           return
         end if
 
@@ -544,8 +554,6 @@ c         print *, "R:", me, "QLEN IS ZERO"
           do i = 1, more_tasks
             call work_queue_get_next_single(me, data_id, task_id, 
      &                                    tile_dim, i)
-
-            
             do j=1,LOCAL_BUFLEN
               bufc(j) = 0.0d0
             end do
