@@ -1,4 +1,7 @@
-GA = /home11/ozog/usr/local/ga-5-2-mpich
+GA = /home11/ozog/usr/local/ga-5-2
+#GA = /home11/ozog/usr/local/ga-5-2-spawn
+#GA = /home11/ozog/usr/local/ga-5-2-armci-mpi
+ARMCI = /home11/ozog/usr/local/armci-ompi
 BLAS = ${HOME}/usr/local/openblas64
 FTOKM = "/home11/ozog/sand/somefile"
 FTOKD = "/home11/ozog/sand/datafile"
@@ -8,20 +11,21 @@ all:
 	#mpicc -c work_queue_create.c
 	#mpicc -c work_queue_destroy.c
 	#mpicc -c work_queue_get.c
-	mpicc -g -Wall -fPIC -DFTOKM=\"${FTOKM}\" -DFTOKD=\"${FTOKD}\" -c *.c -I ${GA}/include -I ${BLAS}/include -L${GA}/lib -larmci -lopenblas
-	gfortran -g -fPIC -c -fdefault-integer-8 -I ${GA}/include -L${GA}/lib ga_cluster_info.F -larmci
-	mpicc -g -shared -Wl,-soname,libworkq.so.1 -o libworkq.so.1.0   *.o -L${GA}/lib -L${BLAS}/lib -lga -larmci -lopenblas
-	ln -sf libworkq.so.1.0 libworkq.so.1
-	ln -sf libworkq.so.1.0 libworkq.so
+	mpicc -O3 -g -Wall -fPIC -DFTOKM=\"${FTOKM}\" -DFTOKD=\"${FTOKD}\" -c *.c -I ${GA}/include -I ${BLAS}/include -L${GA}/lib -L${ARMCI}/lib -larmci -lopenblas
+	gfortran -O3 -g -fPIC -c -fdefault-integer-8 -I ${GA}/include -L${GA}/lib -L${ARMCI}/lib ga_cluster_info.F -larmci
+	#mpicc -O3 -g -shared -Wl,-soname,libworkq.so.1 -o libworkq.so.1.0   *.o -L${GA}/lib -L${BLAS}/lib -lga -larmci -lopenblas
+	ar -cvq libworkq.a *.o
+	#ln -sf libworkq.so.1.0 libworkq.so.1
+	#ln -sf libworkq.so.1.0 libworkq.so
 	
 tau:
 	#mpicc -c work_queue_add.c
 	#mpicc -c work_queue_create.c
 	#mpicc -c work_queue_destroy.c
 	#mpicc -c work_queue_get.c
-	tau_cc.sh -Wall -fPIC -DFTOKM=\"${FTOKM}\" -DFTOKD=\"${FTOKD}\" -c *.c -I ${GA}/include -I ${BLAS}/include -L${GA}/lib -L${BLAS}/lib -lga -lTauARMCIWrapper -larmci -lopenblas
-	tau_f77.sh -fPIC -c -fdefault-integer-8 -I ${GA}/include -I ${BLAS}/include -L${GA}/lib -L${BLAS}/lib ga_cluster_info.F -lga -lTauARMCIWrapper -larmci -lopenblas
-	tau_cc.sh -shared -Wl,-soname,libworkq.so.1 -o libworkq.so.1.0  *.o -L${GA}/lib -L${BLAS}/lib -lga -lTauARMCIWrapper -larmci -lopenblas
+	tau_cc.sh -O3 -Wall -fPIC -DFTOKM=\"${FTOKM}\" -DFTOKD=\"${FTOKD}\" -c *.c -I ${GA}/include -I ${BLAS}/include -L${GA}/lib -L${BLAS}/lib -lga -lTauARMCIWrapper -larmci -lopenblas
+	tau_f77.sh -O3 -fPIC -c -fdefault-integer-8 -I ${GA}/include -I ${BLAS}/include -L${GA}/lib -L${BLAS}/lib ga_cluster_info.F -lga -lTauARMCIWrapper -larmci -lopenblas
+	tau_cc.sh -O3 -shared -Wl,-soname,libworkq.so.1 -o libworkq.so.1.0  *.o -L${GA}/lib -L${BLAS}/lib -lga -lTauARMCIWrapper -larmci -lopenblas
 	ln -sf libworkq.so.1.0 libworkq.so.1
 	ln -sf libworkq.so.1.0 libworkq.so
 	

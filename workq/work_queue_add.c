@@ -109,7 +109,7 @@ int recv_dataqids_(int *nodeid, int *ppn) {
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   MPI_Status stat;
 
-  //printf("%d: receiving from %d\n", rank, *nodeid*(*ppn));
+  if (DEBUG) printf("%d: receiving from %d\n", rank, *nodeid*(*ppn));
   MPI_Recv(&dataqids, NUM_QUEUES, MPI_INT, *nodeid*(*ppn), tag, MPI_COMM_WORLD, &stat);
   if (DEBUG) printf("%d: received %d\n", rank, dataqids[0]);
   return 0;
