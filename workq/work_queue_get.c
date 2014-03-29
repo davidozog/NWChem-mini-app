@@ -341,22 +341,23 @@ int work_queue_get_data_(
 /* Read next chunk of shm_data... */
   if (DEBUG) {
   printf("%d: here0, %d, %d, %d\n", *rank, (*dima), (*dimb), shm_offset);
-  printf("%d: here0, %d, %d, %d\n", *rank, sizeof(double)*(*dima), sizeof(double)*(*dimb), shm_offset*sizeof(double));
+  printf("%d: here0, %ld, %ld, %ld\n", *rank, sizeof(double)*(*dima), sizeof(double)*(*dimb), shm_offset*sizeof(double));
   }
   memcpy(k_a, shm_data + shm_offset, sizeof(double)*(*dima));
   //k_a = shm_data + shm_offset;
   shm_offset += *dima;
   if (DEBUG) {
   printf("%d: here1, %d, %d, %d\n", *rank, (*dima), (*dimb), shm_offset);
-  printf("%d: here1, %d, %d, %d\n", *rank, sizeof(double)*(*dima), sizeof(double)*(*dimb), shm_offset*sizeof(double));
+  printf("%d: here1, %ld, %ld, %ld\n", *rank, sizeof(double)*(*dima), sizeof(double)*(*dimb), shm_offset*sizeof(double));
   }
   memcpy(k_b, shm_data + shm_offset, sizeof(double)*(*dimb));
   //k_b = shm_data + shm_offset;
   shm_offset += *dimb;
   if (DEBUG) {
   printf("%d: here2, %d, %d, %d\n", *rank, (*dima), (*dimb), shm_offset);
-  printf("%d: here2, %d, %d, %d\n", *rank, sizeof(double)*(*dima), sizeof(double)*(*dimb), shm_offset*sizeof(double));
+  printf("%d: here2, %ld, %ld, %ld\n", *rank, sizeof(double)*(*dima), sizeof(double)*(*dimb), shm_offset*sizeof(double));
   }
+  return 0;
 }
 
 int work_queue_free_shm_( int *shmid ) {
@@ -372,4 +373,5 @@ int work_queue_free_shm_( int *shmid ) {
  //  exit(1);
  //}
  shm_offset = 0;
+ return 0;
 }

@@ -90,15 +90,16 @@ int work_queue_create_(int *msqids, int *nodeid, int *ppn) {
 
 int multicast_dataqids(int *ppn) {
   int rank, i, tag=1;
-  MPI_Request req;
-  MPI_Status stat;
+
+  MPI_Request *req = (MPI_Request *)malloc(*ppn * sizeof(MPI_Request));
+  MPI_Status *stat = (MPI_Status *)malloc(*ppn * sizeof(MPI_Status));
 
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   for (i=1; i<*ppn; i++) {
     if (DEBUG) printf("%d: sending %d to %d\n", rank, dataqids[0], rank+i);
-    MPI_Isend(&dataqids, NUM_QUEUES, MPI_INT, rank+i, tag, MPI_COMM_WORLD, &req);
+    MPI_Isend(&dataqids, NUM_QUEUES, MPI_INT, rank+i, tag, MPI_COMM_WORLD, &req[i-1]);
   }
-  MPI_Wait(&req, &stat);
+  MPI_Waitall(*ppn-1, req, stat);
 
   return 0;
 }
@@ -217,7 +218,8 @@ int work_queue_append_task_(
                      int *f,
                      int *d_a,
                      int *d_b,
-                     int *hash,
+                     int *hasha,
+                     int *hashb,
                      int *keya,
                      int *keyb, 
                      int *da,
@@ -261,15 +263,15 @@ int work_queue_append_task_(
 
 //  memcpy(mydata+offset, k_a, sizeof(double)*(dima));
 
-  //get_hash_block_(d_a, shmdata+offset, &dima, hash, keya);
-  work_queue_get_hash_block_(d_a, shmdata+offset, da, hash, keya);
+  //get_hash_block_(d_a, shmdata+offset, &dima, hasha, keya);
+  work_queue_get_hash_block_(d_a, shmdata+offset, da, hasha, keya);
   //memcpy(shmdata+offset, k_a, sizeof(double)*(dima));
   offset += dima;
 
   if (! *intorb ) 
-    work_queue_get_hash_block_(d_b, shmdata+offset, db, hash, keyb);
+    work_queue_get_hash_block_(d_b, shmdata+offset, db, hashb, keyb);
   else
-    work_queue_get_hash_block_i_(d_b, shmdata+offset, db, hash, keyb, g2b, g1b, g4b, g3b);
+    work_queue_get_hash_block_i_(d_b, shmdata+offset, db, hashb, keyb, g2b, g1b, g4b, g3b);
   //memcpy(shmdata+offset, k_b, sizeof(double)*(dimb));
   offset += dimb;
 
