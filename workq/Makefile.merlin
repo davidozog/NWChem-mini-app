@@ -27,4 +27,4 @@ tau:
 	
 
 clean:
-	rm *.o libworkq* *.inst.* *.pdb
+	rm -f *.o libworkq* *.inst.* *.pdb

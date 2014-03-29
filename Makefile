@@ -18,4 +18,4 @@ tau:
 
 clean:
 	cd workq; make clean; cd ..
-	rm bench.o bench bench.tau cbench cbench.tau *.inst.* *.pdb *.o
+	rm -f bench.o bench bench.tau cbench cbench.tau *.inst.* *.pdb *.o
