@@ -1,5 +1,5 @@
 GA = /home/dave/usr/local/ga-5-2
-INC = /home/dave/usr/local/openblas64/include
+BLAS = /home/dave/usr/local/openblas64
 FTOKM = "/home/dave/sand/somefile"
 FTOKD = "/home/dave/sand/datafile"
 
