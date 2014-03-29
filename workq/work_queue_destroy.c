@@ -4,6 +4,8 @@
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/msg.h>
+#include <sys/sem.h>
+#include <sys/shm.h>
 #include "work_queue.h"
 
 int work_queue_destroy_(int *msqids) {
