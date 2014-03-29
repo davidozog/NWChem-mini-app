@@ -7,7 +7,6 @@ BLAS = /home11/ozog/usr/local/openblas64
 
 
 all:
-	#mpicc -I ${GA}/include -L${GA}/lib bench.c -o bench -lga -larmci
 	cd workq; make; cd ..
 	mpif77 -O3 -g -fdefault-integer-8 -I ${GA}/include -I ${ARMCI}/include -L${GA}/lib -L${ARMCI}/lib bench.F -L${WORKQ} -L${BLAS}/lib -o bench -lga -larmci -lworkq -lopenblas 
 	mpicc -O3 -g -I ${GA}/include -I ${BLAS}/include -I ${ARMCI}/include -L${GA}/lib -L${ARMCI}/lib bench.c -L${WORKQ} -L${BLAS}/lib -o cbench -lga -larmci -lworkq -lopenblas 
