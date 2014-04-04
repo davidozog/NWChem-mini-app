@@ -7,8 +7,26 @@
 c     Carver 8n/8ppn
 c#define LOCAL_BUFLEN 1093475
 c     ACISS 8n/8ppn
-#define LOCAL_BUFLEN 3093475
-c#define LOCAL_BUFLEN 100
+c#define LOCAL_BUFLEN 3093475
+c#define LOCAL_BUFLEN 1000000
+#define LOCAL_BUFLEN 2000000
+c#define LOCAL_BUFLEN 3000000
+c#define LOCAL_BUFLEN 4000000
+c#define LOCAL_BUFLEN 5000000
+
+c#define LOCAL_BUFLEN 5550000
+
+c#define LOCAL_BUFLEN 6000000
+c#define LOCAL_BUFLEN 7000000
+c#define LOCAL_BUFLEN 8000000
+c#define LOCAL_BUFLEN 9000000
+c#define LOCAL_BUFLEN 10000000
+c#define LOCAL_BUFLEN 2093475
+c#define LOCAL_BUFLEN 1093475
+
+
+
+c#define LOCAL_BUFLEN 10000
 c#define LOCAL_BUFLEN 10
       integer ierr, me, nproc, heap, stack, tot_data_size, ga_cnt
       integer g_a, g_b, g_c, chunk, i, ihi, ilo, jhi, jlo, ld
@@ -76,11 +94,11 @@ c   Populate GA with synthetic data (GA[i] = i)
 
  10   format (a,2x,f10.6)
 
-c     t1 = ga_wtime()
-c     call bench_orig(g_a, g_b, g_c, tile_dim)
-c     call ga_sync()
-c     t2 = ga_wtime()
-c     if(me.eq.0) write(*, 10), "bench_orig:", t2 - t1
+      t1 = ga_wtime()
+      call bench_orig(g_a, g_b, g_c, tile_dim)
+      call ga_sync()
+      t2 = ga_wtime()
+      if(me.eq.0) write(*, 10), "bench_orig:", t2 - t1
 
 c     t1 = ga_wtime()
 c     call bench_nb(g_a, g_b, g_c)
