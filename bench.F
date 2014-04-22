@@ -326,7 +326,7 @@ c     num_collectors = 4
 
       if (init) then 
         if (me.eq.collector) then
-          CALL work_queue_create(msqids, me, ppn)
+          CALL work_queue_create(msqids, me, nodeid, ppn)
           CALL multicast_msqids(msqids, ppn)
           CALL work_queue_sem_init(ppn)
         else
@@ -576,7 +576,7 @@ c20         format (a,i2,a,2x,f10.6)
 
           end do
 
-        call work_queue_free_shm(shmid)
+        call work_queue_free_shm(task_id, data_size, shmid)
         END IF
 
       end do

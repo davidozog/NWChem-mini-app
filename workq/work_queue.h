@@ -3,11 +3,10 @@
 
 #define MSG_NUMB 2
 #define MSG_TYPE 1
-#define MAXMICROTASKS 64
+#define MAXMICROTASKS 4096
 #define NUM_MSGQS 1
 #define NUM_QUEUES 1
-//#define FTOK_FILEPATH "/global/homes/o/ozog/somefile"
-//#define FTOK_DATAPATH "/global/homes/o/ozog/datafile"
+#define USE_POSIX_SHM 1
 #ifdef FTOKM
   #define FTOK_FILEPATH FTOKM
 #endif

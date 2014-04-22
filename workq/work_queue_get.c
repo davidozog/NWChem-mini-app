@@ -9,6 +9,10 @@
 #include <errno.h>
 #include "work_queue.h"
 #include "cblas.h"
+#ifdef USE_POSIX_SHM
+  #include <sys/mman.h> 
+  #include <fcntl.h>
+#endif
 
 #define DEBUG 0
 #define TIME 0
@@ -62,6 +66,30 @@ int work_queue_rcv_info(int *msqids, int *qid, int rank, int ppn) {
 int work_queue_get_shm_segment(int *shm_key, 
                                int *shmid,
                                int *data_size) {
+#ifdef USE_POSIX_SHM
+  int fd;
+  char shm_name[64]; 
+
+  /* Create unique file object name from task_id */
+  sprintf(shm_name, "%d", *shm_key);
+
+  int perms = 0600;           /* permissions */
+  
+  /* Create shared memory object and set its size */
+  if (DEBUG)
+    printf("TASK %d shm_name=%s, size=%d\n", *shm_key, shm_name, *data_size);
+  fd = shm_open(shm_name, O_CREAT | O_RDONLY, perms);
+  if (fd == -1) { 
+    perror("shm_open"); exit(1); 
+  }
+
+  /* Map shared memory object */
+  shm_data = mmap(NULL, *data_size, PROT_READ, MAP_SHARED, fd, 0);
+  if (shm_data == MAP_FAILED) {
+    printf("(get): task %d, size: %d\n", *shm_key, *data_size);
+    perror("mmap"); exit(1);
+  }
+#else
   key_t key;
   /* make the key: */
   if ((key = ftok(FTOK_FILEPATH, *shm_key)) == -1) {
@@ -81,7 +109,7 @@ int work_queue_get_shm_segment(int *shm_key,
       perror("shmat");
       exit(1);
   }
-
+#endif
   return 0;
 }
 
@@ -213,15 +241,14 @@ int work_queue_get_next_(
   *e = bufs[*i].e;
   *f = bufs[*i].f;
 
-
-//  printf("me:%d, spock2(mtype) %ld\n",*rank,bufs[*i].mtype);
-//  printf("me:%d, spock2(task_id) %d\n",*rank,bufs[*i].task_id);
-//  printf("me:%d, spock2(dima_sort) %d\n",*rank,bufs[*i].dima_sort);
-//  printf("me:%d, spock2(dimb_sort) %d\n",*rank,bufs[*i].dimb_sort);
-//  printf("me:%d, spock2(dim_common) %d\n",*rank,bufs[*i].dim_common);
-//  printf("me:%d, spock2(nsuper1) %d\n",*rank,bufs[*i].nsuper1);
-//  printf("me:%d, spock2(nsuper2) %d\n",*rank,bufs[*i].nsuper2);
-//  printf("me:%d ---------------------\n");
+  //printf("me:%d, spock2(mtype) %ld\n",*rank,bufs[*i].mtype);
+  //printf("me:%d, spock2(task_id) %d\n",*rank,bufs[*i].task_id);
+  //printf("me:%d, spock2(dima_sort) %d\n",*rank,bufs[*i].dima_sort);
+  //printf("me:%d, spock2(dimb_sort) %d\n",*rank,bufs[*i].dimb_sort);
+  //printf("me:%d, spock2(dim_common) %d\n",*rank,bufs[*i].dim_common);
+  //printf("me:%d, spock2(nsuper1) %d\n",*rank,bufs[*i].nsuper1);
+  //printf("me:%d, spock2(nsuper2) %d\n",*rank,bufs[*i].nsuper2);
+  //printf("me:%d ---------------------\n", *rank);
 
   return 0;
 
@@ -239,6 +266,31 @@ int work_queue_dgemm_(char *c1, char *c2, double *alpha, double *factor,
 //b_sorted,dim_common,factor,k_c,dima_sort);
 
   return 0;
+}
+int work_queue_execute_task_(double *k_cs,
+                             int *dima_sort, int *dimb_sort, int *dim_common,
+                             int *a, int *b, int *c, int *d, int *e, int *f,
+                             int *i, int *j, int *k, int *l, double *factor,
+                             int *alpha, char *c1, char *c2, int *rank) {
+
+  int dima = *dima_sort * (*dim_common);
+  int dimb = *dimb_sort * (*dim_common);
+  double *a_sorted = (double *) malloc (dima * sizeof(double));
+  double *b_sorted = (double *) malloc (dimb * sizeof(double));
+
+  work_queue_tce_sort_4_(shm_data + shm_offset, a_sorted, e,f,d,c, i,j,k,l, factor);
+  shm_offset += dima;
+
+  work_queue_tce_sort_4_(shm_data + shm_offset, b_sorted, b,a,e,f, k,l,i,j, factor);
+  shm_offset += dimb;
+
+  work_queue_dgemm_(c1,c2,alpha,factor,dima_sort,dimb_sort,dim_common,
+                    a_sorted,b_sorted,k_cs);
+
+  free(a_sorted);
+  free(b_sorted);
+  return 0;
+
 }
 
 int work_queue_execute_task_single_(double *k_cs,
@@ -292,32 +344,6 @@ int work_queue_tce_sort_4_(double *unsorted, double *sorted,
   return 0;
 }
 
-int work_queue_execute_task_(double *k_cs,
-                             int *dima_sort, int *dimb_sort, int *dim_common,
-                             int *a, int *b, int *c, int *d, int *e, int *f,
-                             int *i, int *j, int *k, int *l, double *factor,
-                             double *alpha, char *c1, char *c2, int *rank) {
-
-  int dima = *dima_sort * (*dim_common);
-  int dimb = *dimb_sort * (*dim_common);
-  double *a_sorted = (double *) malloc (dima * sizeof(double));
-  double *b_sorted = (double *) malloc (dimb * sizeof(double));
-
-  work_queue_tce_sort_4_(shm_data + shm_offset, a_sorted, e,f,d,c, i,j,k,l, factor);
-  shm_offset += dima;
-
-  work_queue_tce_sort_4_(shm_data + shm_offset, b_sorted, b,a,e,f, k,l,i,j, factor);
-  shm_offset += dimb;
-
-  work_queue_dgemm_(c1,c2,alpha,factor,dima_sort,dimb_sort,dim_common,
-                    a_sorted,b_sorted,k_cs);
-
-  free(a_sorted);
-  free(b_sorted);
-  return 0;
-
-}
-
 int work_queue_get_data_(
                           int *dima,
                           double *k_a,
@@ -349,12 +375,30 @@ int work_queue_get_data_(
   return 0;
 }
 
-int work_queue_free_shm_( int *shmid ) {
+int work_queue_free_shm_( int *task_id, int *data_size, int *shmid ) {
+#ifdef USE_POSIX_SHM
+  //TODO: call munmap()/shm_unlink() ONLY if this is the end of the application
+  int fd;
+  char shm_name[64]; 
+
+  /* Create unique file object name from task_id */
+  sprintf(shm_name, "%d", *task_id);
+
+  if ( munmap((void *)shm_data, *data_size) == -1) {
+    perror("munmap"); exit(1);
+  }
+
+  if ( shm_unlink(shm_name) == -1 ) {
+    perror("shm_unlink"); exit(1);
+  }
+
+#else
  /* detach from the segment: */
  if (shmdt(shm_data) == -1) {
    perror("shmdt");
    exit(1);
  }
+#endif
 
  //TODO: this at end of application...
  //if (shmctl(*shmid, IPC_RMID, NULL) == -1) {
