@@ -12,7 +12,10 @@
 #include <mpi.h>
 #include "work_queue.h"
 #include "ga.h"
-//#include <TAU.h>
+#ifdef USE_POSIX_SHM
+  #include <sys/mman.h> 
+  #include <fcntl.h>
+#endif
 
 #define MAX_RETRIES 100
 
@@ -73,7 +76,7 @@ int multicast_dataqids(int *ppn) {
   return 0;
 }
 
-int work_queue_create_(int *msqids, int *nodeid, int *ppn) {
+int work_queue_create_(int *msqids, int *rank, int *nodeid, int *ppn) {
     key_t key;
     int i;
 
@@ -101,6 +104,13 @@ int work_queue_create_(int *msqids, int *nodeid, int *ppn) {
     }
     multicast_dataqids(ppn);
 
+#ifdef USE_POSIX_SHM
+    if (*rank==0) printf("Using POSIX shmem\n");
+#else
+    if (*rank==0) printf("Using SysV shmem\n");
+#endif
+
+
     return 0;
 }
 
@@ -117,13 +127,40 @@ int recv_dataqids_(int *nodeid, int *ppn) {
 
 int work_queue_alloc_task_( int *task_id, int *size) {
 
+#ifdef USE_POSIX_SHM
+  int fd;
+  char shm_name[64]; 
+
+  /* Create unique file object name from task_id */
+  sprintf(shm_name, "%d", *task_id);
+
+  int perms = 0600;           /* permissions */
+  
+  /* Create shared memory object and set its size */
+  if (DEBUG) 
+    printf("task %d shm_name=%s, size=%d\n", *task_id, shm_name, *size*sizeof(double));
+  fd = shm_open(shm_name, O_CREAT | O_RDWR, perms);
+  if (fd == -1) { 
+    perror("shm_open"); exit(1); 
+  }
+
+  if (ftruncate(fd, *size*sizeof(double)) == -1) {
+    perror("ftruncate1"); exit(1);
+  }
+
+  /* Map shared memory object */
+  shmdata = mmap(NULL, *size*sizeof(double), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  if (shmdata == MAP_FAILED) {
+    printf("(add): task %d, size: %d\n", *task_id, *size*sizeof(double));
+    perror("mmap"); exit(1);
+  }
+
+#else
 //  int i;
 //  struct num_tasks num;
   key_t key;
   int shmid;
-//  double t1, t2;
 
-//  t1 = MPI_Wtime();
 // Note: all these microtasks have the same task_id/shm_key
 // TODO: If calling this every time is a performance burden,
 // on the receiving side, I can always set it in the struct above...
@@ -131,20 +168,12 @@ int work_queue_alloc_task_( int *task_id, int *size) {
     perror("ftok3");
     exit(1);
   }
-//  t2 = MPI_Wtime();
-//  printf("ftok time: %f\n", t2 - t1);
 
-
-//  t1 = MPI_Wtime();
   /* connect to (and possibly create) the segment: */
   if ((shmid = shmget(key, *size*sizeof(double), 0644 | IPC_CREAT)) == -1) {
     perror("shmget1");
     exit(1);
   }
-//  t2 = MPI_Wtime();
-//  printf("shmget time: %f\n", t2 - t1);
-
-//  t1 = MPI_Wtime();
   /* attach to the segment to get a pointer to it: */
   shmdata = shmat(shmid, (double *)0, 0);
   //shmdata = shmat(shmid, mydata, SHM_RND);
@@ -155,8 +184,7 @@ int work_queue_alloc_task_( int *task_id, int *size) {
     perror("shmat");
     exit(1);
   }
-//  t2 = MPI_Wtime();
-//  printf("shmat time: %f\n", t2 - t1);
+#endif
 
   return 0;
 
@@ -340,11 +368,15 @@ int work_queue_add_single_( int *msqids,    // in
    num.data_id = dataqids[*task_id % NUM_QUEUES];
    num.data_size = tot_size;
    
-   /* detach from the segment: */
-   if (shmdt(shmdata) == -1) {
-       perror("shmdt");
-       exit(1);
-   }
+#ifdef USE_POSIX_SHM
+  munmap(shmdata, tot_size);
+#else
+  /* detach from the segment: */
+  if (shmdt(shmdata) == -1) {
+      perror("shmdt");
+      exit(1);
+  }
+#endif
  
    size = sizeof(struct num_tasks) - sizeof(long);
  
@@ -430,11 +462,15 @@ int work_queue_add_( int *msqids,
   //shmdata = mydata;
   //mid++;
 
+#ifdef USE_POSIX_SHM
+  munmap(shmdata, tot_size);
+#else
   /* detach from the segment: */
   if (shmdt(shmdata) == -1) {
       perror("shmdt");
       exit(1);
   }
+#endif
 
   size = sizeof(struct num_tasks) - sizeof(long);
 
@@ -586,8 +622,6 @@ int work_queue_sem_init_(int *ppn) {
 
   if (DEBUG) printf("setting sem to: %d...\n", sb.sem_op);
 
-    /* do a semop() to "free" the semaphores. */
-    /* this sets the sem_otime field, as needed below. */
     if (semop(semid, &sb, 1) == -1) {
         int e = errno;
         semctl(semid, 0, IPC_RMID); /* clean up */
@@ -606,9 +640,9 @@ int work_queue_sem_init_(int *ppn) {
     //    perror("semop"); /* error, check errno */
     //    exit(1);
     //}
-  if (DEBUG) printf("got sem...\n");
   }
 
+  if (DEBUG) printf("got sem...\n");
 
   return 0;
 }
