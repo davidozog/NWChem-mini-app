@@ -57,6 +57,22 @@ int work_queue_get_hash_block_i_(int *d_file, double *array, int *size, int *has
   return 0;
 }
 
+int multicast_dataqids(int *ppn) {
+  int rank, i, tag=1;
+
+  MPI_Request *req = (MPI_Request *)malloc(*ppn * sizeof(MPI_Request));
+  MPI_Status *stat = (MPI_Status *)malloc(*ppn * sizeof(MPI_Status));
+
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  for (i=1; i<*ppn; i++) {
+    if (DEBUG) printf("%d: sending %d to %d\n", rank, dataqids[0], rank+i);
+    MPI_Isend(&dataqids, NUM_QUEUES, MPI_INT, rank+i, tag, MPI_COMM_WORLD, &req[i-1]);
+  }
+  MPI_Waitall(*ppn-1, req, stat);
+
+  return 0;
+}
+
 int work_queue_create_(int *msqids, int *nodeid, int *ppn) {
     key_t key;
     int i;
@@ -88,24 +104,8 @@ int work_queue_create_(int *msqids, int *nodeid, int *ppn) {
     return 0;
 }
 
-int multicast_dataqids(int *ppn) {
-  int rank, i, tag=1;
-  MPI_Request req;
-  MPI_Status stat;
-
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  for (i=1; i<*ppn; i++) {
-    if (DEBUG) printf("%d: sending %d to %d\n", rank, dataqids[0], rank+i);
-    MPI_Isend(&dataqids, NUM_QUEUES, MPI_INT, rank+i, tag, MPI_COMM_WORLD, &req);
-  }
-  MPI_Wait(&req, &stat);
-
-  return 0;
-}
-
-
 int recv_dataqids_(int *nodeid, int *ppn) {
-  int i, rank, tag=1;
+  int rank, tag=1;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   MPI_Status stat;
 
@@ -121,9 +121,9 @@ int work_queue_alloc_task_( int *task_id, int *size) {
 //  struct num_tasks num;
   key_t key;
   int shmid;
-  double t1, t2;
+//  double t1, t2;
 
-  t1 = MPI_Wtime();
+//  t1 = MPI_Wtime();
 // Note: all these microtasks have the same task_id/shm_key
 // TODO: If calling this every time is a performance burden,
 // on the receiving side, I can always set it in the struct above...
@@ -131,20 +131,20 @@ int work_queue_alloc_task_( int *task_id, int *size) {
     perror("ftok3");
     exit(1);
   }
-  t2 = MPI_Wtime();
+//  t2 = MPI_Wtime();
 //  printf("ftok time: %f\n", t2 - t1);
 
 
-  t1 = MPI_Wtime();
+//  t1 = MPI_Wtime();
   /* connect to (and possibly create) the segment: */
   if ((shmid = shmget(key, *size*sizeof(double), 0644 | IPC_CREAT)) == -1) {
     perror("shmget1");
     exit(1);
   }
-  t2 = MPI_Wtime();
+//  t2 = MPI_Wtime();
 //  printf("shmget time: %f\n", t2 - t1);
 
-  t1 = MPI_Wtime();
+//  t1 = MPI_Wtime();
   /* attach to the segment to get a pointer to it: */
   shmdata = shmat(shmid, (double *)0, 0);
   //shmdata = shmat(shmid, mydata, SHM_RND);
@@ -155,7 +155,7 @@ int work_queue_alloc_task_( int *task_id, int *size) {
     perror("shmat");
     exit(1);
   }
-  t2 = MPI_Wtime();
+//  t2 = MPI_Wtime();
 //  printf("shmat time: %f\n", t2 - t1);
 
   return 0;
@@ -217,7 +217,8 @@ int work_queue_append_task_(
                      int *f,
                      int *d_a,
                      int *d_b,
-                     int *hash,
+                     int *hasha,
+                     int *hashb,
                      int *keya,
                      int *keyb, 
                      int *da,
@@ -261,15 +262,15 @@ int work_queue_append_task_(
 
 //  memcpy(mydata+offset, k_a, sizeof(double)*(dima));
 
-  //get_hash_block_(d_a, shmdata+offset, &dima, hash, keya);
-  work_queue_get_hash_block_(d_a, shmdata+offset, da, hash, keya);
+  //get_hash_block_(d_a, shmdata+offset, &dima, hasha, keya);
+  work_queue_get_hash_block_(d_a, shmdata+offset, da, hasha, keya);
   //memcpy(shmdata+offset, k_a, sizeof(double)*(dima));
   offset += dima;
 
   if (! *intorb ) 
-    work_queue_get_hash_block_(d_b, shmdata+offset, db, hash, keyb);
+    work_queue_get_hash_block_(d_b, shmdata+offset, db, hashb, keyb);
   else
-    work_queue_get_hash_block_i_(d_b, shmdata+offset, db, hash, keyb, g2b, g1b, g4b, g3b);
+    work_queue_get_hash_block_i_(d_b, shmdata+offset, db, hashb, keyb, g2b, g1b, g4b, g3b);
   //memcpy(shmdata+offset, k_b, sizeof(double)*(dimb));
   offset += dimb;
 
@@ -283,6 +284,39 @@ int work_queue_append_task_(
 
   return 0;
 }
+
+int work_queue_get_min_qlen_( int *nodeid, int *msqids, int *qlen, int *qid ) {
+  struct msqid_ds qbuf;
+  int i, min, min_q;
+
+  min = 0;
+  min_q = 0;
+  for (i=0; i<NUM_MSGQS; i++) {
+  if( msgctl( msqids[i], IPC_STAT, &qbuf) == -1) {
+    perror("msgctl1 - get_qlen");
+    exit(1);
+  }
+//  printf("n:%d r:%d qlen is  %d\n", *nodeid, i, qbuf.msg_qnum);
+    if (i==0) {
+      min = qbuf.msg_qnum;
+    }
+    else if (qbuf.msg_qnum < min) {
+      min = qbuf.msg_qnum;
+      min_q = i; 
+    }
+
+//    printf("qlen[%d] = %d\n", i, qbuf.msg_qnum);
+  }
+
+//  printf("min is now %d\n", min);
+//  printf("min_q is now %d\n", min_q);
+
+  *qlen = min;
+  *qid = min_q;
+
+  return 0;
+}
+
 
 int work_queue_add_single_( int *msqids,    // in
                      int *task_id,          // in
@@ -465,7 +499,6 @@ int work_queue_end_taskgroup_(int *msqids, int *ppn, int *ntasks) {
 
  
   size = sizeof(struct num_tasks) - sizeof(long);
-  int procs_per_q;
   for (i=0; i<*ppn; i++) {
     if (msgsnd(msqids[i%NUM_MSGQS], buf, size, 0) == -1)  {
             perror("msgsnd1");
@@ -486,38 +519,6 @@ int work_queue_end_taskgroup_(int *msqids, int *ppn, int *ntasks) {
 
 
   if (DEBUG) printf("out of end_taskgroup\n");
-
-  return 0;
-}
-
-int work_queue_get_min_qlen_( int *nodeid, int *msqids, int *qlen, int *qid ) {
-  struct msqid_ds qbuf;
-  int i, min, min_q;
-
-  min = 0;
-  min_q = 0;
-  for (i=0; i<NUM_MSGQS; i++) {
-  if( msgctl( msqids[i], IPC_STAT, &qbuf) == -1) {
-    perror("msgctl1 - get_qlen");
-    exit(1);
-  }
-//  printf("n:%d r:%d qlen is  %d\n", *nodeid, i, qbuf.msg_qnum);
-    if (i==0) {
-      min = qbuf.msg_qnum;
-    }
-    else if (qbuf.msg_qnum < min) {
-      min = qbuf.msg_qnum;
-      min_q = i; 
-    }
-
-//    printf("qlen[%d] = %d\n", i, qbuf.msg_qnum);
-  }
-
-//  printf("min is now %d\n", min);
-//  printf("min_q is now %d\n", min_q);
-
-  *qlen = min;
-  *qid = min_q;
 
   return 0;
 }
@@ -752,7 +753,6 @@ int work_queue_sem_getvalue_(int *value, int *nodeid) {
   key_t key;
   int semid;
   union semun arg;
-  struct semid_ds buf;
   ushort ar;
 
   if ((key = ftok(FTOK_FILEPATH, 'S')) == -1) {

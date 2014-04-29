@@ -3,34 +3,19 @@
 #include "global.fh"
 #include "mafdecls.fh"
       integer num_nodes, nodeid, counter_host, ppn, me
-      CHARACTER(len=255) :: local_size
-      double precision t2, t1
+c     CHARACTER(len=32) :: ppn_str
 
-c     PPN hack (ompi only):
-      CALL getenv("OMPI_COMM_WORLD_LOCAL_SIZE", local_size)
-      read (local_size,*) ppn 
-
-c     NODEID hack:
-c     t1 = ga_wtime()
-c     CALL node_info(nodeid)
-c     t2 = ga_wtime()
-c10   format (a,2x,f10.6)
-c     if(me.eq.0) write(*, 10), "node_info:", t2 - t1
-
-c     FASTER NODEID hack:
+      num_nodes = ga_cluster_nnodes()
+      nodeid = ga_cluster_nodeid()
+      ppn = ga_cluster_nprocs(nodeid)
       me = ga_nodeid()
+
+c     CALL getenv("PROCS_PER_NODE", ppn_str)
+c     read (ppn_str,*) ppn
+c     FASTER NODEID hack:
       num_nodes = ga_cluster_nnodes()
       num_nodes = num_nodes / ppn
       nodeid = me / ppn
-
-c     nodeid = ga_cluster_nodeid()
-c     ppn = ga_cluster_nprocs(nodeid)
-
-
-c     print *, "num_nodes:", num_nodes
-c     print *, "nodeid:", nodeid
-c     print *, "ppn:", ppn 
-c     print *, "me:", me 
 
       counter_host = me/ppn + 1
 

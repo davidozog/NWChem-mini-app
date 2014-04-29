@@ -8,10 +8,6 @@ FTOKM = "/home11/ozog/sand/somefile"
 FTOKD = "/home11/ozog/sand/datafile"
 
 all:
-	#mpicc -c work_queue_add.c
-	#mpicc -c work_queue_create.c
-	#mpicc -c work_queue_destroy.c
-	#mpicc -c work_queue_get.c
 	mpicc -O3 -g -Wall -fPIC -DFTOKM=\"${FTOKM}\" -DFTOKD=\"${FTOKD}\" -c *.c -I ${GA}/include -I ${BLAS}/include -L${GA}/lib -L${ARMCI}/lib -larmci -lopenblas
 	gfortran -O3 -g -fPIC -c -fdefault-integer-8 -I ${GA}/include -L${GA}/lib -L${ARMCI}/lib ga_cluster_info.F -larmci
 	#mpicc -O3 -g -shared -Wl,-soname,libworkq.so.1 -o libworkq.so.1.0   *.o -L${GA}/lib -L${BLAS}/lib -lga -larmci -lopenblas
@@ -20,10 +16,6 @@ all:
 	#ln -sf libworkq.so.1.0 libworkq.so
 	
 tau:
-	#mpicc -c work_queue_add.c
-	#mpicc -c work_queue_create.c
-	#mpicc -c work_queue_destroy.c
-	#mpicc -c work_queue_get.c
 	tau_cc.sh -O3 -Wall -fPIC -DFTOKM=\"${FTOKM}\" -DFTOKD=\"${FTOKD}\" -c *.c -I ${GA}/include -I ${BLAS}/include -L${GA}/lib -L${BLAS}/lib -lga -lTauARMCIWrapper -larmci -lopenblas
 	tau_f77.sh -O3 -fPIC -c -fdefault-integer-8 -I ${GA}/include -I ${BLAS}/include -L${GA}/lib -L${BLAS}/lib ga_cluster_info.F -lga -lTauARMCIWrapper -larmci -lopenblas
 	#tau_cc.sh -O3 -shared -Wl,-soname,libworkq.so.1 -o libworkq.so.1.0  *.o -L${GA}/lib -L${BLAS}/lib -lga -lTauARMCIWrapper -larmci -lopenblas
@@ -33,4 +25,4 @@ tau:
 	
 
 clean:
-	rm *.o libworkq* *.inst.* *.pdb
+	rm -f *.o libworkq* *.inst.* *.pdb

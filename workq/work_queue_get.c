@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/msg.h>
@@ -23,6 +24,67 @@ struct num_tasks mynum;
 double *shm_data;
 int shm_offset = 0;
 
+int work_queue_rcv_info(int *msqids, int *qid, int rank, int ppn) {
+  size_t size = sizeof(struct num_tasks)-sizeof(long);
+
+//  printf("%d: getting info at %d\n", rank, msqids[rank%ppn]);
+
+  struct msqid_ds qbuf;
+  //if( msgctl( msqids[rank%NUM_MSGQS], IPC_STAT, &qbuf) == -1) {
+  if( msgctl( msqids[*qid], IPC_STAT, &qbuf) == -1) {
+    perror("msgctl3 - get_qlen");
+    exit(1);
+  }
+//  printf("%d: qlen is %d\n", rank, qbuf.msg_qnum);
+
+  struct timeval tim;
+  gettimeofday(&tim, NULL);
+  double t1=tim.tv_sec+(tim.tv_usec/1000000.0);
+  //if (msgrcv(msqids[rank%NUM_MSGQS], &mynum, size, MSG_NUMB, 0) == -1) {
+  if (msgrcv(msqids[*qid], &mynum, size, MSG_NUMB, 0) == -1) {
+      perror("msgrcv1");
+      //exit(1);
+  }
+  gettimeofday(&tim, NULL);
+  double t2=tim.tv_sec+(tim.tv_usec/1000000.0);
+  //if (TIME) printf("%d: %.6lf seconds elapsed\n", rank, t2-t1);
+  if (TIME) printf("%d: %E seconds elapsed\n", rank, t2-t1);
+  //if( msgctl( msqids[rank%NUM_MSGQS], IPC_STAT, &qbuf) == -1) {
+  if( msgctl( msqids[*qid], IPC_STAT, &qbuf) == -1) {
+    perror("msgctl4 - get_qlen");
+    exit(1);
+  }
+//  printf("%d: qlen is now %d\n", rank, qbuf.msg_qnum);
+
+  return 0;
+}
+
+int work_queue_get_shm_segment(int *shm_key, 
+                               int *shmid,
+                               int *data_size) {
+  key_t key;
+  /* make the key: */
+  if ((key = ftok(FTOK_FILEPATH, *shm_key)) == -1) {
+    perror("ftok4");
+    exit(1);
+  }
+
+  /* connect to the segment: */
+  if ((*shmid = shmget(key, *data_size, 0644 | IPC_CREAT)) == -1) {
+      perror("shmget2");
+      exit(1);
+  }
+
+  /* attach to the segment to get a pointer to it: */
+  shm_data = shmat(*shmid, (double *)0, 0);
+  if (shm_data == (double *)(-1)) {
+      perror("shmat");
+      exit(1);
+  }
+
+  return 0;
+}
+
 int work_queue_get_info_(
                               int *msqids,
                               int *qid,
@@ -41,17 +103,6 @@ int work_queue_get_info_(
                               int *ppn
                         )
 {
-  key_t key;
-//  struct num_tasks *num;
-  size_t size;
-
-  /* get the key to the queue */
-//  if ((key = ftok(FTOK_FILEPATH, 'B')) == -1) {
-//      perror("ftok");
-//      exit(1);
-//  }
-//  /* connect to the queue */
-//  work_queue_connect(msqid, key);
   
   if (DEBUG) {
     printf("%d: worker receiving messages...\n", *rank);
@@ -96,67 +147,6 @@ int work_queue_connect(int *msqid, int key) {
 }
 
 
-int work_queue_get_shm_segment(int *shm_key, 
-                               int *shmid,
-                               int *data_size) {
-  key_t key;
-  /* make the key: */
-  if ((key = ftok(FTOK_FILEPATH, *shm_key)) == -1) {
-    perror("ftok4");
-    exit(1);
-  }
-
-  /* connect to the segment: */
-  if ((*shmid = shmget(key, *data_size, 0644 | IPC_CREAT)) == -1) {
-      perror("shmget2");
-      exit(1);
-  }
-
-  /* attach to the segment to get a pointer to it: */
-  shm_data = shmat(*shmid, (double *)0, 0);
-  if (shm_data == (double *)(-1)) {
-      perror("shmat");
-      exit(1);
-  }
-
-  return 0;
-}
-
-
-int work_queue_rcv_info(int *msqids, int *qid, int rank, int ppn) {
-  size_t size = sizeof(struct num_tasks)-sizeof(long);
-
-//  printf("%d: getting info at %d\n", rank, msqids[rank%ppn]);
-
-  struct msqid_ds qbuf;
-  //if( msgctl( msqids[rank%NUM_MSGQS], IPC_STAT, &qbuf) == -1) {
-  if( msgctl( msqids[*qid], IPC_STAT, &qbuf) == -1) {
-    perror("msgctl3 - get_qlen");
-    exit(1);
-  }
-//  printf("%d: qlen is %d\n", rank, qbuf.msg_qnum);
-
-  struct timeval tim;
-  gettimeofday(&tim, NULL);
-  double t1=tim.tv_sec+(tim.tv_usec/1000000.0);
-  //if (msgrcv(msqids[rank%NUM_MSGQS], &mynum, size, MSG_NUMB, 0) == -1) {
-  if (msgrcv(msqids[*qid], &mynum, size, MSG_NUMB, 0) == -1) {
-      perror("msgrcv1");
-      //exit(1);
-  }
-  gettimeofday(&tim, NULL);
-  double t2=tim.tv_sec+(tim.tv_usec/1000000.0);
-  //if (TIME) printf("%d: %.6lf seconds elapsed\n", rank, t2-t1);
-  if (TIME) printf("%d: %E seconds elapsed\n", rank, t2-t1);
-  //if( msgctl( msqids[rank%NUM_MSGQS], IPC_STAT, &qbuf) == -1) {
-  if( msgctl( msqids[*qid], IPC_STAT, &qbuf) == -1) {
-    perror("msgctl4 - get_qlen");
-    exit(1);
-  }
-//  printf("%d: qlen is now %d\n", rank, qbuf.msg_qnum);
-
-  return 0;
-}
 
 int work_queue_get_next_single_(
                           int *rank,
@@ -237,6 +227,20 @@ int work_queue_get_next_(
 
 }
 
+// TODO: This probably uses NWCHEM blas...  I want OpenBLAS.
+int work_queue_dgemm_(char *c1, char *c2, double *alpha, double *factor,
+                      int *dima_sort, int *dimb_sort, int *dim_common,
+                      double *a_sorted, double *b_sorted, double *k_c) {
+
+  cblas_dgemm(CblasColMajor, CblasTrans, CblasNoTrans, 
+                *dim_common, *dim_common, *dim_common, *alpha, a_sorted, 
+                *dim_common, b_sorted, *dim_common, *factor, k_c, *dim_common);
+//dgemm_(c1,c2,dima_sort,dimb_sort,dim_common,alpha,a_sorted,dim_common,
+//b_sorted,dim_common,factor,k_c,dima_sort);
+
+  return 0;
+}
+
 int work_queue_execute_task_single_(double *k_cs,
                              int *tile_dim,
                              double *alpha, double *factor,
@@ -268,6 +272,25 @@ int work_queue_execute_task_single_(double *k_cs,
 
 }
 
+int work_queue_tce_sort_4_(double *unsorted, double *sorted,
+                           int *a, int *b, int *c, int *d, 
+                           int *i, int *j, int *k, int *l, double *factor) {
+//  printf("unsorted[0]=%f\n", unsorted[0]);
+//  printf("sorted[0]=%f\n", sorted[0]);
+//  printf("a=%d\n", *a);
+//  printf("b=%d\n", *b);
+//  printf("c=%d\n", *c);
+//  printf("d=%d\n", *d);
+//  printf("i=%d\n", *i);
+//  printf("j=%d\n", *j);
+//  printf("k=%d\n", *k);
+//  printf("l=%d\n", *l);
+//  printf("factor=%f\n", *factor);
+//  tce_sort_4_(unsorted, sorted, a, b, c, d, i, j, k, l, factor);
+  printf("work_queue_dgemm here\n");
+//  printf("out alive\n");
+  return 0;
+}
 
 int work_queue_execute_task_(double *k_cs,
                              int *dima_sort, int *dimb_sort, int *dim_common,
@@ -295,40 +318,6 @@ int work_queue_execute_task_(double *k_cs,
 
 }
 
-// TODO: This probably uses NWCHEM blas...  I want OpenBLAS.
-int work_queue_dgemm_(char *c1, char *c2, double *alpha, double *factor,
-                      int *dima_sort, int *dimb_sort, int *dim_common,
-                      double *a_sorted, double *b_sorted, double *k_c) {
-
-  cblas_dgemm(CblasColMajor, CblasTrans, CblasNoTrans, 
-                *dim_common, *dim_common, *dim_common, *alpha, a_sorted, 
-                *dim_common, b_sorted, *dim_common, *factor, k_c, *dim_common);
-//dgemm_(c1,c2,dima_sort,dimb_sort,dim_common,alpha,a_sorted,dim_common,
-//b_sorted,dim_common,factor,k_c,dima_sort);
-
-  return 0;
-}
-
-int work_queue_tce_sort_4_(double *unsorted, double *sorted,
-                           int *a, int *b, int *c, int *d, 
-                           int *i, int *j, int *k, int *l, double *factor) {
-//  printf("unsorted[0]=%f\n", unsorted[0]);
-//  printf("sorted[0]=%f\n", sorted[0]);
-//  printf("a=%d\n", *a);
-//  printf("b=%d\n", *b);
-//  printf("c=%d\n", *c);
-//  printf("d=%d\n", *d);
-//  printf("i=%d\n", *i);
-//  printf("j=%d\n", *j);
-//  printf("k=%d\n", *k);
-//  printf("l=%d\n", *l);
-//  printf("factor=%f\n", *factor);
-//  tce_sort_4_(unsorted, sorted, a, b, c, d, i, j, k, l, factor);
-  printf("work_queue_dgemm here\n");
-//  printf("out alive\n");
-  return 0;
-}
-
 int work_queue_get_data_(
                           int *dima,
                           double *k_a,
@@ -341,22 +330,23 @@ int work_queue_get_data_(
 /* Read next chunk of shm_data... */
   if (DEBUG) {
   printf("%d: here0, %d, %d, %d\n", *rank, (*dima), (*dimb), shm_offset);
-  printf("%d: here0, %d, %d, %d\n", *rank, sizeof(double)*(*dima), sizeof(double)*(*dimb), shm_offset*sizeof(double));
+  printf("%d: here0, %ld, %ld, %ld\n", *rank, sizeof(double)*(*dima), sizeof(double)*(*dimb), shm_offset*sizeof(double));
   }
   memcpy(k_a, shm_data + shm_offset, sizeof(double)*(*dima));
   //k_a = shm_data + shm_offset;
   shm_offset += *dima;
   if (DEBUG) {
   printf("%d: here1, %d, %d, %d\n", *rank, (*dima), (*dimb), shm_offset);
-  printf("%d: here1, %d, %d, %d\n", *rank, sizeof(double)*(*dima), sizeof(double)*(*dimb), shm_offset*sizeof(double));
+  printf("%d: here1, %ld, %ld, %ld\n", *rank, sizeof(double)*(*dima), sizeof(double)*(*dimb), shm_offset*sizeof(double));
   }
   memcpy(k_b, shm_data + shm_offset, sizeof(double)*(*dimb));
   //k_b = shm_data + shm_offset;
   shm_offset += *dimb;
   if (DEBUG) {
   printf("%d: here2, %d, %d, %d\n", *rank, (*dima), (*dimb), shm_offset);
-  printf("%d: here2, %d, %d, %d\n", *rank, sizeof(double)*(*dima), sizeof(double)*(*dimb), shm_offset*sizeof(double));
+  printf("%d: here2, %ld, %ld, %ld\n", *rank, sizeof(double)*(*dima), sizeof(double)*(*dimb), shm_offset*sizeof(double));
   }
+  return 0;
 }
 
 int work_queue_free_shm_( int *shmid ) {
@@ -372,4 +362,5 @@ int work_queue_free_shm_( int *shmid ) {
  //  exit(1);
  //}
  shm_offset = 0;
+ return 0;
 }

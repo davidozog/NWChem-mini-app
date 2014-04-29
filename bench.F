@@ -5,28 +5,11 @@
 #include "global.fh"
 #include "errquit.fh"
 c     Carver 8n/8ppn
-c#define LOCAL_BUFLEN 1093475
+#define LOCAL_BUFLEN 1093475
+c#define LOCAL_BUFLEN 2000000
 c     ACISS 8n/8ppn
 c#define LOCAL_BUFLEN 3093475
-c#define LOCAL_BUFLEN 1000000
-#define LOCAL_BUFLEN 2000000
-c#define LOCAL_BUFLEN 3000000
-c#define LOCAL_BUFLEN 4000000
-c#define LOCAL_BUFLEN 5000000
-
-c#define LOCAL_BUFLEN 5550000
-
-c#define LOCAL_BUFLEN 6000000
-c#define LOCAL_BUFLEN 7000000
-c#define LOCAL_BUFLEN 8000000
-c#define LOCAL_BUFLEN 9000000
-c#define LOCAL_BUFLEN 10000000
-c#define LOCAL_BUFLEN 2093475
-c#define LOCAL_BUFLEN 1093475
-
-
-
-c#define LOCAL_BUFLEN 10000
+c#define LOCAL_BUFLEN 100
 c#define LOCAL_BUFLEN 10
       integer ierr, me, nproc, heap, stack, tot_data_size, ga_cnt
       integer g_a, g_b, g_c, chunk, i, ihi, ilo, jhi, jlo, ld
@@ -39,12 +22,12 @@ c#define LOCAL_BUFLEN 10
       character*(256) hostname
 
 c     Carver 8 ppn:
-c     heap = 200000000
-c     stack = 25435450
+      heap = 200000000
+      stack = 25435450
 
 c     ACISS 12 ppn:
-      heap = 200000000
-      stack = 50000000
+c     heap = 200000000
+c     stack = 50000000
 
       call mpi_init(ierr)
       call ga_initialize()
@@ -384,7 +367,7 @@ c         call ga_get(g_b, ilo, ihi, 1, 1, bufb, ld)
      &                                       ld, bufa, bufb)
           t2 = ga_wtime()
 c         write(*, 20), "GET(", me, "):", t2 - t1
- 20     format (a,i2,a,2x,f10.6)
+c20     format (a,i2,a,2x,f10.6)
           call work_queue_add_single(msqids, next, tile_dim, me, nodeid,
      &                         ppn, a_collector)
 
@@ -581,7 +564,7 @@ c         print *, "R:", me, "QLEN IS ZERO"
      &                tile_dim, 1.0d0, 2.0d0,'T','N',me)
             t2 = ga_wtime()
 c           write(*, 20), "DGEMM(", me, "):", t2 - t1
- 20         format (a,i2,a,2x,f10.6)
+c20         format (a,i2,a,2x,f10.6)
 
 
             tile_size = tile_dim*tile_dim

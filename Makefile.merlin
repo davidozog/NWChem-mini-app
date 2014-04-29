@@ -4,7 +4,7 @@ BLAS = /home/dave/usr/local/openblas64
 
 
 all:
-	#mpicc -I ${GA}/include -L${GA}/lib bench.c -o bench -lga -larmci
+	cd workq; make; cd ..
 	mpif77 -g -fdefault-integer-8 -I ${GA}/include -L${GA}/lib bench.F -L${WORKQ} -L${BLAS}/lib -o bench -lga -larmci -lworkq -lopenblas
 	mpicc -g -I ${GA}/include -I ${BLAS}/include -L${GA}/lib bench.c -L${WORKQ} -L${BLAS}/lib -o cbench -lga -larmci -lworkq -lopenblas
 
@@ -16,4 +16,5 @@ tau:
 	#tau_cc.sh -o cbench bench.c -I/usr/common/usg/ga/5.1/gcc/include -L/usr/common/usg/ga/5.1/gcc/lib -lga -lTauARMCIWrapper -larmci -libverbs -libumad -lpthread -lm
 
 clean:
-	rm bench.o bench bench.tau cbench cbench.tau *.inst.* *.pdb *.o
+	cd workq; make clean; cd ..
+	rm -f bench.o bench bench.tau cbench cbench.tau *.inst.* *.pdb *.o
