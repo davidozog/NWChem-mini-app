@@ -7,6 +7,7 @@
 #define NUM_MSGQS 1
 #define NUM_QUEUES 1
 #define USE_POSIX_SHM 1
+#define USE_MPI_SHM 1
 #ifdef FTOKM
   #define FTOK_FILEPATH FTOKM
 #endif

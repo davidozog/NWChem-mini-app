@@ -78,31 +78,124 @@ int multicast_dataqids(int *ppn) {
 
 int work_queue_create_(int *msqids, int *rank, int *nodeid, int *ppn) {
     key_t key;
-    int i;
+    int i, collector;
+
+    collector = *rank - (*rank) % (*ppn);
+
+#ifdef USE_MPI_SHM
+    int shm_rank, shm_nproc, disp_unit, errors = 0;
+    int *shm_base, *q_base, *my_shm_base, *my_q_base;
+    MPI_Aint q_size, shm_size;
+    MPI_Comm shm_comm;
+    MPI_Win  shm_win[2];
+
+    MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, *rank, 
+                        MPI_INFO_NULL, &shm_comm);
+    MPI_Comm_rank(shm_comm, &shm_rank);
+    MPI_Comm_size(shm_comm, &shm_nproc);
+
+    MPI_Win_allocate_shared(sizeof(int)*NUM_MSGQS, sizeof(int), MPI_INFO_NULL, 
+                             shm_comm, &my_q_base, &shm_win[0]);
+
+    MPI_Win_allocate_shared(sizeof(int)*NUM_QUEUES, sizeof(int), MPI_INFO_NULL, 
+                             shm_comm, &my_shm_base, &shm_win[1]);
+
+    /* Locate absolute bases */
+    MPI_Win_shared_query(shm_win[0], MPI_PROC_NULL, &q_size, &disp_unit, &q_base); 
+    if (disp_unit != sizeof(int))
+        errors++;
+    if (q_size != NUM_MSGQS * sizeof(int))
+        errors++;
+    if ((shm_rank == 0) && (q_base != my_q_base))
+        errors++;
+    if (shm_rank && (q_base == my_q_base))
+        errors++;
+
+    MPI_Win_shared_query(shm_win[1], MPI_PROC_NULL, &shm_size, &disp_unit, &shm_base); 
+    if (disp_unit != sizeof(int))
+        errors++;
+    if (shm_size != NUM_QUEUES* sizeof(int))
+        errors++;
+    if ((shm_rank == 0) && (shm_base != my_shm_base))
+        errors++;
+    if (shm_rank && (shm_base == my_shm_base))
+        errors++;
+
+    if (DEBUG || errors > 0) perror("GOT MPI_SHM ERRORS\n");
+
+    MPI_Win_lock_all(MPI_MODE_NOCHECK, shm_win[0]);
+    MPI_Win_lock_all(MPI_MODE_NOCHECK, shm_win[1]);
+
+#endif
+    if (*rank == collector) {
+
+      for (i=0; i<NUM_MSGQS; i++) {
+        if ((key = ftok(FTOK_FILEPATH, (*nodeid+1)*i)) == -1) {
+            perror("ftok1");
+            exit(1);
+        }
+        if ((msqids[i] = msgget(key, 0644 | IPC_CREAT)) == -1) {
+            perror("msgget: creating queue...");
+            exit(1);
+        }
+        if (DEBUG) printf("msgqid[%d]=%d\n", i, msqids[i]);
+      }
+
+      for (i=0; i<NUM_QUEUES; i++) {
+        if ((key = ftok(FTOK_DATAPATH, i)) == -1) {
+            perror("ftok2");
+            exit(1);
+        }
+        if ((dataqids[i] = msgget(key, 0644 | IPC_CREAT)) == -1) {
+            perror("msgget: creating queue...");
+            exit(1);
+        }
+        if (DEBUG) printf("dataqid[%d]=%d\n", i, dataqids[i]);
+      }
+
+#ifdef USE_MPI_SHM
+      for (i=0; i<NUM_MSGQS; i++) {
+        my_q_base[i] = msqids[i];
+      }
+      for (i=0; i<NUM_QUEUES; i++) {
+        my_shm_base[i] = dataqids[i];
+      }
+    }
+
+    MPI_Win_sync(shm_win[0]);
+    MPI_Win_sync(shm_win[1]);
+    MPI_Barrier(shm_comm);
 
     for (i=0; i<NUM_MSGQS; i++) {
-      if ((key = ftok(FTOK_FILEPATH, (*nodeid+1)*i)) == -1) {
-          perror("ftok1");
-          exit(1);
-      }
-      if ((msqids[i] = msgget(key, 0644 | IPC_CREAT)) == -1) {
-          perror("msgget: creating queue...");
-          exit(1);
-      }
+      msqids[i] = q_base[i];
+    }
+    for (i=0; i<NUM_QUEUES; i++) {
+      dataqids[i] = q_base[i];
+    }
+      
+    if (DEBUG) printf("%d: msqids[0] = %d\n", *rank, q_base[0]);
+    if (DEBUG) printf("%d: dataids[0] = %d\n", *rank, shm_base[0]);
+    MPI_Win_unlock_all(shm_win[0]); MPI_Win_unlock_all(shm_win[1]);
+    MPI_Win_free(&shm_win[0]); MPI_Win_free(&shm_win[1]);
+    MPI_Comm_free(&shm_comm);
+
+#else
+      multicast_msqids_(msqids, ppn);
+      multicast_dataqids(ppn);
+
     }
 
-    for (i=0; i<NUM_QUEUES; i++) {
-      if ((key = ftok(FTOK_DATAPATH, i)) == -1) {
-          perror("ftok2");
-          exit(1);
-      }
-      if ((dataqids[i] = msgget(key, 0644 | IPC_CREAT)) == -1) {
-          perror("msgget: creating queue...");
-          exit(1);
-      }
-      if (DEBUG) printf("dataqid[%d]=%d\n", i, dataqids[i]);
+    /* Not collector */
+    else {
+      recv_msqids_(msqids, nodeid, ppn);
+      recv_dataqids_(nodeid, ppn);
+      printf("%d: msqids[0] = %d\n", *rank, msqids[0]);
+      printf("%d: dataids[0] = %d\n", *rank, dataqids[0]);
     }
-    multicast_dataqids(ppn);
+
+#endif
+
+    work_queue_sem_init_(ppn);
 
 #ifdef USE_POSIX_SHM
     if (*rank==0) printf("Using POSIX shmem\n");
