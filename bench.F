@@ -84,6 +84,12 @@ c   Populate GA with synthetic data (GA[i] = i)
       if(me.eq.0) write(*, 10), "bench_orig:", t2 - t1
 
 c     t1 = ga_wtime()
+c     call bench_orig_stats(g_a, g_b, g_c, tile_dim)
+c     call ga_sync()
+c     t2 = ga_wtime()
+c     if(me.eq.0) write(*, 10), "bench_orig_stats:", t2 - t1
+
+c     t1 = ga_wtime()
 c     call bench_nb(g_a, g_b, g_c)
 c     call ga_sync()
 c     t2 = ga_wtime()
@@ -174,6 +180,91 @@ c10   format (a,2x,f10.6)
 
       return
       end
+
+c     Statistics version
+      subroutine bench_orig_stats(g_a, g_b, g_c, tile_dim)
+      implicit none
+#include "global.fh"
+#include "mafdecls.fh"
+#include "errquit.fh"
+      integer g_a, g_b, g_c, me, nproc, num_nodes, nodeid, ch, ppn
+      integer ga_cnt, count, next, i, j, ilo, ihi, ld, tot_data_size
+      double precision bufa(LOCAL_BUFLEN)
+      double precision bufb(LOCAL_BUFLEN)
+      double precision bufc(LOCAL_BUFLEN)
+      double precision time1, time2, total_time
+      logical status
+      integer tile_dim, tile_size
+      integer k
+      double precision t2, t1, time
+
+      time1 = ga_wtime()
+      tile_size = tile_dim*tile_dim
+
+      call ga_cluster_info(num_nodes, nodeid, ch, ppn)
+      me = ga_nodeid()
+      nproc = ga_nnodes()
+      tot_data_size = nproc * LOCAL_BUFLEN
+
+c   Create a global counter for dynamic load balancing
+      status = nga_create(MT_INT, 1, 1, 'counter', 1, ga_cnt)
+      if (.not.status) call pexit('get_task() fail')
+      CALL ga_zero(ga_cnt)
+
+      count = 0
+      next = nga_read_inc(ga_cnt, 1, 1)
+      do i=0,tot_data_size/tile_size-1
+        if (next.eq.count) then
+          ilo = next*tile_size + 1
+          ihi = ilo + tile_size - 1
+          ld = LOCAL_BUFLEN*nproc
+
+          t2 = ga_wtime()
+          call ga_get(g_a, ilo, ihi, 1, 1, bufa, ld)
+          t1 = ga_wtime()
+          time = t2 - t1
+          print *, "get(a)", time
+
+          t2 = ga_wtime()
+          call ga_get(g_b, ilo, ihi, 1, 1, bufb, ld)
+          t1 = ga_wtime()
+          time = t2 - t1
+          print *, "get(b)", time
+
+          t2 = ga_wtime()
+          do j=1,LOCAL_BUFLEN
+            bufc(j) = 0.0d0
+          end do
+          t1 = ga_wtime()
+          time = t2 - t1
+          print *, "init(c)", time
+
+          t2 = ga_wtime()
+        call dgemm_wrap(tile_dim, bufa, bufb, bufc)
+          t1 = ga_wtime()
+          time = t2 - t1
+          print *, "dgemm()", time
+
+          t2 = ga_wtime()
+          call ga_put(g_c, ilo, ihi, 1, 1, bufc, tile_dim)
+          t1 = ga_wtime()
+          time = t2 - t1
+          print *, "add(c)", time
+
+          next = nga_read_inc(ga_cnt, 1, 1)
+        end if
+        count = count + 1
+      end do
+
+      time2 = ga_wtime()
+      total_time = time2 - time1
+
+c     if(me.eq.0) write(*, 10), "bench_orig:", total_time
+c10   format (a,2x,f10.6)
+
+      return
+      end
+
 
 
       integer function swap_color(color)
