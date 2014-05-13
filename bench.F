@@ -95,12 +95,12 @@ c     call ga_sync()
 c     t2 = ga_wtime()
 c     if(me.eq.0) write(*, 10), "bench_nb:", t2 - t1
 
-      t1 = ga_wtime()
-      call bench_workq(g_a, g_b, g_c,.true.,ga_cnt,msqids,
-     &                 tile_dim, num_collectors)
-      call ga_sync()
-      t2 = ga_wtime()
-      if(me.eq.0) write(*, 10), "bench_workq:", t2 - t1
+c     t1 = ga_wtime()
+c     call bench_workq(g_a, g_b, g_c,.true.,ga_cnt,msqids,
+c    &                 tile_dim, num_collectors)
+c     call ga_sync()
+c     t2 = ga_wtime()
+c     if(me.eq.0) write(*, 10), "bench_workq:", t2 - t1
 
 c     call bench_workq_mm(g_a, g_b, g_c)
 
@@ -152,6 +152,7 @@ c   Create a global counter for dynamic load balancing
       next = nga_read_inc(ga_cnt, 1, 1)
       do i=0,tot_data_size/tile_size-1
         if (next.eq.count) then
+          bufc = 0
           ilo = next*tile_size + 1
           ihi = ilo + tile_size - 1
           ld = LOCAL_BUFLEN*nproc
@@ -159,12 +160,7 @@ c   Create a global counter for dynamic load balancing
           call ga_get(g_a, ilo, ihi, 1, 1, bufa, ld)
           call ga_get(g_b, ilo, ihi, 1, 1, bufb, ld)
 
-          do j=1,LOCAL_BUFLEN
-            bufc(j) = 0.0d0
-          end do
-
-        call dgemm_wrap(tile_dim, bufa, bufb, bufc)
-
+          call dgemm_wrap(tile_dim, bufa, bufb, bufc)
           call ga_put(g_c, ilo, ihi, 1, 1, bufc, tile_dim)
 
           next = nga_read_inc(ga_cnt, 1, 1)
@@ -215,6 +211,7 @@ c   Create a global counter for dynamic load balancing
       next = nga_read_inc(ga_cnt, 1, 1)
       do i=0,tot_data_size/tile_size-1
         if (next.eq.count) then
+          bufc = 0
           ilo = next*tile_size + 1
           ihi = ilo + tile_size - 1
           ld = LOCAL_BUFLEN*nproc
@@ -232,15 +229,7 @@ c   Create a global counter for dynamic load balancing
           print *, "get(b)", time
 
           t2 = ga_wtime()
-          do j=1,LOCAL_BUFLEN
-            bufc(j) = 0.0d0
-          end do
-          t1 = ga_wtime()
-          time = t2 - t1
-          print *, "init(c)", time
-
-          t2 = ga_wtime()
-        call dgemm_wrap(tile_dim, bufa, bufb, bufc)
+          call dgemm_wrap(tile_dim, bufa, bufb, bufc)
           t1 = ga_wtime()
           time = t2 - t1
           print *, "dgemm()", time
@@ -319,12 +308,7 @@ c   Create a global counter for dynamic load balancing
 c     TODO: last task...
       do i=0,tot_data_size/tile_size-2
         if (next.eq.count) then
-
-          do j=1,LOCAL_BUFLEN
-            do k=1,2
-              bufc(j,k) = 0.0d0
-            end do
-          end do
+        bufc = 0
 
         if (iter.eq.1) then
           do j=1,2
@@ -644,12 +628,9 @@ c         print *, "R:", me, "QLEN IS ZERO"
 
         IF (more_tasks.gt.0) THEN
           do i = 1, more_tasks
+            bufc = 0
             call work_queue_get_next_single(me, data_id, task_id, 
      &                                    tile_dim, i)
-            do j=1,LOCAL_BUFLEN
-              bufc(j) = 0.0d0
-            end do
-            
             t1 = ga_wtime()
             call work_queue_execute_task_single(bufc,
      &                tile_dim, 1.0d0, 2.0d0,'T','N',me)
