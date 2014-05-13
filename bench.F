@@ -116,8 +116,6 @@ c     if(me.eq.0) write(*, 10), "bench_nb:", t2 - t1
         call ga_zero(g_c)  
       end if
 
-c     call bench_workq_mm(g_a, g_b, g_c)
-
 c     call ga_print(g_a)
 c     call ga_print(g_c)
 
@@ -409,20 +407,11 @@ c10   format (a,2x,f10.6)
       tot_data_size = nproc * LOCAL_BUFLEN
 
 c     The zeroeth proc on each node is that node's collector:
-c     num_collectors = 4
       collector = me - mod(me,ppn)
       a_collector = am_collector(me, collector, num_collectors) 
 
       if (init) then 
-c       call workq_create_queue(me, collector, msqids, nodeid, ppn)
-        if (me.eq.collector) then
-          CALL workq_create(msqids, me, nodeid, ppn)
-          CALL multicast_msqids(msqids, ppn)
-          CALL workq_sem_init(ppn)
-        else
-          CALL recv_msqids(msqids, nodeid, ppn)
-          CALL recv_dataqids(nodeid, ppn)
-        end if
+        call workq_create_queue(me, collector, msqids, nodeid, ppn)
       end if
 
 c   Create a global counter for dynamic load balancing
@@ -458,7 +447,7 @@ c         call ga_get(g_b, ilo, ihi, 1, 1, bufb, ld)
           t2 = ga_wtime()
 c         write(*, 20), "GET(", me, "):", t2 - t1
 c20     format (a,i2,a,2x,f10.6)
-          call workq_add_single(msqids, next, tile_dim, me, nodeid,
+          call workq_enqueue_single(msqids, next, tile_dim, me, nodeid,
      &                         ppn, a_collector)
 
           CALL workq_sem_release(nodeid)
@@ -485,7 +474,6 @@ c     if(me.eq.0) write(*,11), "total tasks: ", count
 
       if (me.eq.collector) then
         CALL workq_end_taskgroup(msqids, ppn, count)
-
       end if
 
       CALL worker(g_a, g_b, g_c, ga_cnt, msqids, tile_dim,
@@ -497,105 +485,6 @@ c10   format (a,2x,f10.6)
       return
       end
 
-
-      subroutine bench_workq_mm(g_a, g_b, g_c)
-      implicit none
-#include "global.fh"
-#include "mafdecls.fh"
-#include "errquit.fh"
-      integer g_a, g_b, g_c, me, nproc, num_nodes, nodeid, ch, ppn
-      integer ga_cnt, count, next, i, j, ilo, ihi, ld, tot_data_size
-      double precision bufa(LOCAL_BUFLEN)
-      double precision bufb(LOCAL_BUFLEN)
-      double precision bufc(LOCAL_BUFLEN)
-      double precision time1, time2, total_time
-      logical status
-      integer num_collectors, msqids(7), sem, collector
-      integer tile_dim, tile_size
-
-      time1 = ga_wtime()
-      tile_size = tile_dim*tile_dim
-      sem = 0
-
-      call ga_cluster_info(num_nodes, nodeid, ch, ppn)
-      me = ga_nodeid()
-      nproc = ga_nnodes()
-      tot_data_size = nproc * LOCAL_BUFLEN
-
-c     The zeroeth proc on each node is that node's collector:
-      num_collectors = 1
-      collector = me - mod(me,ppn)
-      if (me.eq.collector) then
-        CALL workq_create(msqids, me, ppn)
-        CALL multicast_msqids(msqids, ppn)
-        CALL workq_sem_init(ppn)
-      else
-        CALL recv_msqids(msqids, nodeid, ppn)
-        CALL recv_dataqids(nodeid, ppn)
-      end if
-
-
-c   Create a global counter for dynamic load balancing
-      status = nga_create(MT_INT, 1, 1, 'counter', 1, ga_cnt)
-      if (.not.status) call pexit('get_task() fail')
-      CALL ga_zero(ga_cnt)
-
-      count = 0
-      next = nga_read_inc(ga_cnt, 1, 1)
-
-      CALL workq_sem_getvalue(sem, nodeid)
-      CALL workq_sem_post(nodeid)
-
-      do i=0,tot_data_size/tile_size-1
-        if (next.eq.count) then
-
-          CALL workq_sem_getvalue(sem, nodeid)
-c         print *, "sem value = ", sem
-
-          CALL workq_alloc_task(next, tile_size)
-
-          ilo = next*tile_size + 1
-          ihi = ilo + tile_size - 1
-          ld = LOCAL_BUFLEN*nproc
-  
-          call ga_get(g_a, ilo, ihi, 1, 1, bufa, ld)
-          call ga_get(g_b, ilo, ihi, 1, 1, bufb, ld)
-
-          call dgemm( 'T', 'N', tile_dim, tile_dim, tile_dim, 1.0d0, 
-     &                 bufa, tile_dim, bufb, tile_dim, 1.0, bufc, 
-     &                 tile_dim)
-
-          call ga_put(g_c, ilo, ihi, 1, 1, bufc, tile_dim)
-
-          CALL workq_sem_release(nodeid)
-          next = nga_read_inc(ga_cnt, 1, 1)
-          CALL workq_sem_post(nodeid)
-        end if
-        count = count + 1
-      end do
-
-      CALL workq_sem_release(nodeid)
-      CALL workq_sem_wait()
-      time2 = ga_wtime()
-      total_time = time2 - time1
-
-      if (me.eq.collector) then
-        CALL workq_end_taskgroup(msqids, ppn, count)
-
-! TODO: put this in the finished worker's finalize subroutine
-        CALL workq_destroy(msqids)
-        CALL workq_destroy_sem()
-      else
-c     TODO: Destroy all data when application is finished...
-c       CALL workq_destroy_data(shmid)
-      end if
-
-      if(me.eq.0) write(*, 10), "bench_workq_mm:", total_time
- 10   format (a,2x,f10.6)
-
-      return
-      end
-      
 
       subroutine worker(g_a, g_b, g_c, ga_cnt, msqids, td, 
      &                  num_collectors)
@@ -644,7 +533,7 @@ c         print *, "R:", me, "QLEN IS ZERO"
         IF (more_tasks.gt.0) THEN
           do i = 1, more_tasks
             bufc = 0
-            call workq_get_next_single(me, data_id, task_id, 
+            call workq_dequeue_single(me, data_id, task_id, 
      &                                    tile_dim, i)
             t1 = ga_wtime()
             call workq_execute_task_single(bufc,
@@ -670,13 +559,6 @@ c20         format (a,i2,a,2x,f10.6)
 
       CALL bench_finalize(me, collector, nc, msqids)
 
-c     call dgemm( 'T', 'N', tile_dim, tile_dim, tile_dim, 1.0d0, 
-c    &             bufa, tile_dim, bufb, tile_dim, 1.0, bufc, 
-c    &             tile_dim)
-
-c     call ga_put(g_c, ilo, ihi, 1, 1, bufc, tile_dim)
-
-
       return
       end
 
@@ -693,7 +575,6 @@ c     call ga_put(g_c, ilo, ihi, 1, 1, bufc, tile_dim)
         call workq_destroy(msqids)
         call workq_destroy_sem()
       else
-c     todo: destroy all data when application is finished...
 c       call workq_destroy_data(shmid)
       end if
 

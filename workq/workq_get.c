@@ -163,20 +163,7 @@ int workq_get_info_(
   return 0;
 }
 
-/* connect to the queue */
-int workq_connect(int *msqid, int key) {
-  while (1) {
-    if ((*msqid = msgget(key, 0644)) == -1) { 
-      /* perror("msgget: no queue yet..."); */
-      /* exit(1);                           */
-    } else break;
-  }
-  return 0;
-}
-
-
-
-int workq_get_next_single_(
+int workq_dequeue_single_(
                           int *rank,
                           int *data_id,
                           int *task_id,
@@ -208,7 +195,7 @@ int workq_get_next_single_(
 
 }
 
-int workq_get_next_(
+int workq_dequeue_next_(
                           int *rank,
                           int *data_id,
                           int *task_id,
