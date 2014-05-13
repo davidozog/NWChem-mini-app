@@ -3,14 +3,12 @@
 #include <sys/ipc.h>
 #include <sys/msg.h>
 #include <sys/shm.h>
-#include <sys/sem.h>
-#include <errno.h>
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
 #include <malloc.h>
 #include <mpi.h>
-#include "work_queue.h"
+#include "workq.h"
 #include "ga.h"
 #ifdef USE_POSIX_SHM
   #include <sys/mman.h> 
@@ -26,13 +24,6 @@ extern void get_hash_block_(int *d_file, double *array, int *size, int *hash, in
 extern void get_hash_block_i_(int *d_file, double *array, int *size, int *hash, int *key, 
                               int *g2b, int *g1b, int *g4b, int *g3b);
 
-/* For the semaphore status */
-union semun {
-    int val;
-    struct semid_ds *buf;
-    ushort *array;
-};
-
 int num_microtasks = 0;
 int tot_microtasks = 0;
 struct my_msgbuf bufs[MAXMICROTASKS];
@@ -47,13 +38,13 @@ int sem;
 int dataqids[NUM_QUEUES];
 
 
-int work_queue_get_hash_block_(int *d_file, double *array, int *size, int *hash, int *key) {
+int workq_get_hash_block_(int *d_file, double *array, int *size, int *hash, int *key) {
 //  get_hash_block_(d_file, array, size, hash, key);
   printf("get_hash here\n");
   return 0;
 }
 
-int work_queue_get_hash_block_i_(int *d_file, double *array, int *size, int *hash, int *key,
+int workq_get_hash_block_i_(int *d_file, double *array, int *size, int *hash, int *key,
                                  int *g2b, int *g1b, int *g4b, int *g3b) {
 //  get_hash_block_i_(d_file, array, size, hash, key, g2b, g1b, g4b, g3b);
   printf("get_hash_i here\n");
@@ -76,7 +67,19 @@ int multicast_dataqids(int *ppn) {
   return 0;
 }
 
-int work_queue_create_(int *msqids, int *rank, int *nodeid, int *ppn) {
+int recv_dataqids_(int *nodeid, int *ppn) {
+  int rank, tag=1;
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  MPI_Status stat;
+
+  if (DEBUG) printf("%d: receiving from %d\n", rank, *nodeid*(*ppn));
+  MPI_Recv(&dataqids, NUM_QUEUES, MPI_INT, *nodeid*(*ppn), tag, MPI_COMM_WORLD, &stat);
+  if (DEBUG) printf("%d: received %d\n", rank, dataqids[0]);
+  return 0;
+}
+
+
+int workq_create_(int *msqids, int *rank, int *nodeid, int *ppn) {
     key_t key;
     int i, collector;
 
@@ -195,7 +198,7 @@ int work_queue_create_(int *msqids, int *rank, int *nodeid, int *ppn) {
 
 #endif
 
-    work_queue_sem_init_(ppn);
+    workq_sem_init_(ppn);
 
 #ifdef USE_POSIX_SHM
     if (*rank==0) printf("Using POSIX shmem\n");
@@ -207,18 +210,7 @@ int work_queue_create_(int *msqids, int *rank, int *nodeid, int *ppn) {
     return 0;
 }
 
-int recv_dataqids_(int *nodeid, int *ppn) {
-  int rank, tag=1;
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  MPI_Status stat;
-
-  if (DEBUG) printf("%d: receiving from %d\n", rank, *nodeid*(*ppn));
-  MPI_Recv(&dataqids, NUM_QUEUES, MPI_INT, *nodeid*(*ppn), tag, MPI_COMM_WORLD, &stat);
-  if (DEBUG) printf("%d: received %d\n", rank, dataqids[0]);
-  return 0;
-}
-
-int work_queue_alloc_task_( int *task_id, int *size) {
+int workq_alloc_task_( int *task_id, int *size) {
 
 #ifdef USE_POSIX_SHM
   int fd;
@@ -231,7 +223,7 @@ int work_queue_alloc_task_( int *task_id, int *size) {
   
   /* Create shared memory object and set its size */
   if (DEBUG) 
-    printf("task %d shm_name=%s, size=%d\n", *task_id, shm_name, *size*sizeof(double));
+    printf("task %d shm_name=%s, size=%ld\n", *task_id, shm_name, *size*sizeof(double));
   fd = shm_open(shm_name, O_CREAT | O_RDWR, perms);
   if (fd == -1) { 
     perror("shm_open"); exit(1); 
@@ -244,7 +236,7 @@ int work_queue_alloc_task_( int *task_id, int *size) {
   /* Map shared memory object */
   shmdata = mmap(NULL, *size*sizeof(double), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
   if (shmdata == MAP_FAILED) {
-    printf("(add): task %d, size: %d\n", *task_id, *size*sizeof(double));
+    printf("(add): task %d, size: %ld\n", *task_id, *size*sizeof(double));
     perror("mmap"); exit(1);
   }
 
@@ -283,7 +275,7 @@ int work_queue_alloc_task_( int *task_id, int *size) {
 
 }
 
-int work_queue_append_task_single_(
+int workq_append_task_single_(
                      int *task_id,
                      int *tile_dim,
                      int *g_a,
@@ -327,7 +319,7 @@ int work_queue_append_task_single_(
   return 0;
 }
 
-int work_queue_append_task_(
+int workq_append_task_(
                      int *task_id,
                      int *dima_sort,
                      int *dimb_sort,
@@ -384,14 +376,14 @@ int work_queue_append_task_(
 //  memcpy(mydata+offset, k_a, sizeof(double)*(dima));
 
   //get_hash_block_(d_a, shmdata+offset, &dima, hasha, keya);
-  work_queue_get_hash_block_(d_a, shmdata+offset, da, hasha, keya);
+  workq_get_hash_block_(d_a, shmdata+offset, da, hasha, keya);
   //memcpy(shmdata+offset, k_a, sizeof(double)*(dima));
   offset += dima;
 
   if (! *intorb ) 
-    work_queue_get_hash_block_(d_b, shmdata+offset, db, hashb, keyb);
+    workq_get_hash_block_(d_b, shmdata+offset, db, hashb, keyb);
   else
-    work_queue_get_hash_block_i_(d_b, shmdata+offset, db, hashb, keyb, g2b, g1b, g4b, g3b);
+    workq_get_hash_block_i_(d_b, shmdata+offset, db, hashb, keyb, g2b, g1b, g4b, g3b);
   //memcpy(shmdata+offset, k_b, sizeof(double)*(dimb));
   offset += dimb;
 
@@ -406,7 +398,7 @@ int work_queue_append_task_(
   return 0;
 }
 
-int work_queue_get_min_qlen_( int *nodeid, int *msqids, int *qlen, int *qid ) {
+int workq_get_min_qlen_( int *nodeid, int *msqids, int *qlen, int *qid ) {
   struct msqid_ds qbuf;
   int i, min, min_q;
 
@@ -439,7 +431,7 @@ int work_queue_get_min_qlen_( int *nodeid, int *msqids, int *qlen, int *qid ) {
 }
 
 
-int work_queue_add_single_( int *msqids,    // in
+int workq_add_single_( int *msqids,    // in
                      int *task_id,          // in
                      int *tile_dim,         // in
                      int *rank,             // in
@@ -474,7 +466,7 @@ int work_queue_add_single_( int *msqids,    // in
    size = sizeof(struct num_tasks) - sizeof(long);
  
    if (*collector) {
-     work_queue_get_min_qlen_(nodeid, msqids, &qlen, &qid);
+     workq_get_min_qlen_(nodeid, msqids, &qlen, &qid);
  //    printf("min qlen is %d\n", qlen);
  //    printf("min qid is %d\n", qid);
    }
@@ -514,7 +506,7 @@ int work_queue_add_single_( int *msqids,    // in
 
 }
 
-int work_queue_add_( int *msqids, 
+int workq_add_( int *msqids, 
                      int *task_id,
                      int *dimc,
                      int *a,
@@ -568,7 +560,7 @@ int work_queue_add_( int *msqids,
   size = sizeof(struct num_tasks) - sizeof(long);
 
   if (*collector) {
-    work_queue_get_min_qlen_(nodeid, msqids, &qlen, &qid);
+    workq_get_min_qlen_(nodeid, msqids, &qlen, &qid);
 //    printf("min qlen is %d\n", qlen);
 //    printf("min qid is %d\n", qid);
   }
@@ -608,7 +600,7 @@ int work_queue_add_( int *msqids,
 
 }
 
-int work_queue_end_taskgroup_(int *msqids, int *ppn, int *ntasks) {
+int workq_end_taskgroup_(int *msqids, int *ppn, int *ntasks) {
 
   if (DEBUG) printf("inside end_taskgroup\n");
   size_t size;
@@ -652,7 +644,7 @@ int work_queue_end_taskgroup_(int *msqids, int *ppn, int *ntasks) {
   return 0;
 }
 
-int work_queue_get_max_qlen_( int *nodeid, int *msqids, int *qlen, int *qid ) {
+int workq_get_max_qlen_( int *nodeid, int *msqids, int *qlen, int *qid ) {
   struct msqid_ds qbuf;
   int i, max, max_q;
 
@@ -685,219 +677,4 @@ int work_queue_get_max_qlen_( int *nodeid, int *msqids, int *qlen, int *qid ) {
 }
 
 
-int work_queue_sem_init_(int *ppn) {
-  key_t key;
-  int semid;
-  struct sembuf sb;
-  union semun arg;
 
-  if (DEBUG) printf("initializing sem...\n");
-
-  if ((key = ftok(FTOK_FILEPATH, 'S')) == -1) {
-        perror("ftok:sem collector");
-        exit(1);
-  }
-
-  if (DEBUG) printf("init key: %d...\n", key);
-
-  semid = semget(key, 1, 0644 | IPC_CREAT);
-
-  if (DEBUG) printf("got ID: %d...\n", semid);
-
-//  Fail if semaphore already exists:
-//  semid = semget(key, 1, IPC_CREAT | IPC_EXCL | 0644);
-
-
-  if (semid >= 0) { /* I got it first */
-    sb.sem_num = 0;
-    sb.sem_op = 1;
-    sb.sem_flg = 0;
-
-  if (DEBUG) printf("setting sem to: %d...\n", sb.sem_op);
-
-    if (semop(semid, &sb, 1) == -1) {
-        int e = errno;
-        semctl(semid, 0, IPC_RMID); /* clean up */
-        errno = e;
-        perror("semop"); /* error, check errno */
-        exit(1);
-    }
-    else {
-        arg.val = 0;
-        semctl(semid, 0, SETVAL, arg);
-    }
-    //if (semop(semid, &sb, 1) == -1) {
-    //    int e = errno;
-    //    semctl(semid, 0, IPC_RMID); /* clean up */
-    //    errno = e;
-    //    perror("semop"); /* error, check errno */
-    //    exit(1);
-    //}
-  }
-
-  if (DEBUG) printf("got sem...\n");
-
-  return 0;
-}
-
-int work_queue_sem_post_(int *nodeid) {
-  key_t key;
-  int semid;
-  struct sembuf sb;
-  union semun arg;
-  struct semid_ds buf;
-  int ready = 0;
-
-  if ((key = ftok(FTOK_FILEPATH, 'S')) == -1) {
-        perror("ftok:sem worker");
-        exit(1);
-  }
-
-  if (DEBUG) printf("post key: %d...\n", key);
-
-  semid = semget(key, 1, 0);
-  if (semid < 0) { 
-    perror("semid is negative (post)\n");
-    exit(1);
-  }
-  /* wait for other process to initialize the semaphore: */
-  arg.buf = &buf;
-//  for(i = 0; i < MAX_RETRIES && !ready; i++) {
-  while (ready == 0) {
-    semctl(semid, 0, IPC_STAT, arg);
-    if (arg.buf->sem_otime != 0) {
-      ready = 1;
-    } 
-  }
-//  if (!ready) {
-//      errno = ETIME;
-//      return -1;
-//  }
-
-  sb.sem_num = 0;
-  sb.sem_op = 1;
-  sb.sem_flg = 0;
-  arg.val = 1;
-
-  if (semop(semid, &sb, 1) == -1) {
-      semctl(semid, 0, IPC_RMID); /* clean up */
-      perror("semop"); 
-      exit(1);
-  }
-
-  if (DEBUG) printf("%d: incremented sem...\n", *nodeid);
-
-  return 0;
-}
-
-int work_queue_sem_release_(int *nodeid) {
-  key_t key;
-  int semid;
-  struct sembuf sb;
-  union semun arg;
-  struct semid_ds buf;
-  int ready = 0;
-
-  if ((key = ftok(FTOK_FILEPATH, 'S')) == -1) {
-        perror("ftok:sem worker");
-        exit(1);
-  }
-
-  semid = semget(key, 1, 0);
-  if (semid < 0 ) {
-    perror("semid is negative (release)\n");
-    exit(1);
-  }
-  /* wait for other process to initialize the semaphore: */
-  arg.buf = &buf;
-//  for(i = 0; i < MAX_RETRIES && !ready; i++) {
-  while (ready == 0) {
-    semctl(semid, 0, IPC_STAT, arg);
-    if (arg.buf->sem_otime != 0) {
-      ready = 1;
-    } else {
-      if (DEBUG) printf("sem not ready...\n");
-      printf("sem not ready...\n");
-    } 
-  }
-//  if (!ready) {
-//      errno = ETIME;
-//      return -1;
-//  }
-
-  sb.sem_num = 0;
-  sb.sem_op = -1;
-  sb.sem_flg = 0;
-
-  if (semop(semid, &sb, 1) == -1) {
-      semctl(semid, 0, IPC_RMID); /* clean up */
-      perror("semop"); 
-      exit(1);
-  }
-
-  ushort ar;
-  arg.array = &ar;
-  semctl(semid, 0, GETALL, arg);
-
-  if (DEBUG) printf("%d: decremented sem to %d...\n", *nodeid, arg.array[0]);
-
-  return 0;
-}
-
-
-int work_queue_sem_wait_() {
-  key_t key;
-  int semid;
-  struct sembuf sb;
-  sb.sem_num = 0;
-  sb.sem_op = 0;
-  sb.sem_flg = 0;
-
-  if (DEBUG) printf("waiting on sem...\n");
-
-  if ((key = ftok(FTOK_FILEPATH, 'S')) == -1) {
-    perror("ftok:sem wait...");
-    exit(1);
-  }
-
-  semid = semget(key, 1, 0);
-  if (semid < 0 ) {
-    perror("semid is negative (wait)\n");
-    exit(1);
-  }
-  if (semop(semid, &sb, 1) == -1) {
-      semctl(semid, 0, IPC_RMID); /* clean up */
-      perror("semop"); 
-      exit(1);
-  }
-
-  if (DEBUG) printf("done with sem...\n");
-
-  return 0;
-}
-
-int work_queue_sem_getvalue_(int *value, int *nodeid) {
-  key_t key;
-  int semid;
-  union semun arg;
-  ushort ar;
-
-  if ((key = ftok(FTOK_FILEPATH, 'S')) == -1) {
-        perror("ftok:sem worker");
-        exit(1);
-  }
-
-  semid = semget(key, 1, 0);
-  if (semid < 0 ) {
-    perror("semid is negative (getvalue)\n");
-    exit(1);
-  }
-
-  arg.array = &ar;
-  semctl(semid, 0, GETALL, arg);
-
-  if (DEBUG) printf("%d: SEMAPHORE:%d\n", *nodeid, arg.array[0]);
-  *value = arg.array[0];
-
-  return 0;
-}

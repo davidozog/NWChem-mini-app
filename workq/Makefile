@@ -1,7 +1,7 @@
-GA = /global/homes/o/ozog/usr/local/ga-5-2-gcc
-BLAS = /global/homes/o/ozog/usr/local/openblas64
-FTOKM = "/global/homes/o/ozog/somefile"
-FTOKD = "/global/homes/o/ozog/datafile"
+GA = /home/dave/usr/local/ga-5-2
+BLAS = /home/dave/usr/local/openblas64
+FTOKM = "/home/dave/sand/somefile"
+FTOKD = "/home/dave/sand/datafile"
 
 all:
 	mpicc -g -Wall -fPIC -DFTOKM=\"${FTOKM}\" -DFTOKD=\"${FTOKD}\" -c *.c -I ${GA}/include -I ${BLAS}/include -L${GA}/lib -larmci -lopenblas

@@ -7,7 +7,7 @@
 #include <sys/shm.h>
 #include <sys/time.h>
 #include <errno.h>
-#include "work_queue.h"
+#include "workq.h"
 #include "cblas.h"
 #ifdef USE_POSIX_SHM
   #include <sys/mman.h> 
@@ -28,7 +28,7 @@ struct num_tasks mynum;
 double *shm_data;
 int shm_offset = 0;
 
-int work_queue_rcv_info(int *msqids, int *qid, int rank, int ppn) {
+int workq_rcv_info(int *msqids, int *qid, int rank, int ppn) {
   size_t size = sizeof(struct num_tasks)-sizeof(long);
 
 //  printf("%d: getting info at %d\n", rank, msqids[rank%ppn]);
@@ -63,7 +63,7 @@ int work_queue_rcv_info(int *msqids, int *qid, int rank, int ppn) {
   return 0;
 }
 
-int work_queue_get_shm_segment(int *shm_key, 
+int workq_get_shm_segment(int *shm_key, 
                                int *shmid,
                                int *data_size) {
 #ifdef USE_POSIX_SHM
@@ -113,7 +113,7 @@ int work_queue_get_shm_segment(int *shm_key,
   return 0;
 }
 
-int work_queue_get_info_(
+int workq_get_info_(
                               int *msqids,
                               int *qid,
                               int *data_id,
@@ -138,7 +138,7 @@ int work_queue_get_info_(
 
   mynum.ntasks = 0;
 
-  work_queue_rcv_info(msqids, qid, *rank, *ppn);
+  workq_rcv_info(msqids, qid, *rank, *ppn);
 
   if (DEBUG) {
     printf("%d: THIS MANY TASKS: %d\n", *rank, mynum.ntasks);
@@ -158,13 +158,13 @@ int work_queue_get_info_(
   *tce_key = mynum.tce_key;
 
   if (*more_tasks > 0) 
-    work_queue_get_shm_segment(shm_key, shmid, data_size);
+    workq_get_shm_segment(shm_key, shmid, data_size);
 
   return 0;
 }
 
 /* connect to the queue */
-int work_queue_connect(int *msqid, int key) {
+int workq_connect(int *msqid, int key) {
   while (1) {
     if ((*msqid = msgget(key, 0644)) == -1) { 
       /* perror("msgget: no queue yet..."); */
@@ -176,7 +176,7 @@ int work_queue_connect(int *msqid, int key) {
 
 
 
-int work_queue_get_next_single_(
+int workq_get_next_single_(
                           int *rank,
                           int *data_id,
                           int *task_id,
@@ -208,7 +208,7 @@ int work_queue_get_next_single_(
 
 }
 
-int work_queue_get_next_(
+int workq_get_next_(
                           int *rank,
                           int *data_id,
                           int *task_id,
@@ -255,7 +255,7 @@ int work_queue_get_next_(
 }
 
 // TODO: This probably uses NWCHEM blas...  I want OpenBLAS.
-int work_queue_dgemm_(char *c1, char *c2, double *alpha, double *factor,
+int workq_dgemm_(char *c1, char *c2, double *alpha, double *factor,
                       int *dima_sort, int *dimb_sort, int *dim_common,
                       double *a_sorted, double *b_sorted, double *k_c) {
 
@@ -267,24 +267,45 @@ int work_queue_dgemm_(char *c1, char *c2, double *alpha, double *factor,
 
   return 0;
 }
-int work_queue_execute_task_(double *k_cs,
+
+int workq_tce_sort_4_(double *unsorted, double *sorted,
+                           int *a, int *b, int *c, int *d, 
+                           int *i, int *j, int *k, int *l, double *factor) {
+//  printf("unsorted[0]=%f\n", unsorted[0]);
+//  printf("sorted[0]=%f\n", sorted[0]);
+//  printf("a=%d\n", *a);
+//  printf("b=%d\n", *b);
+//  printf("c=%d\n", *c);
+//  printf("d=%d\n", *d);
+//  printf("i=%d\n", *i);
+//  printf("j=%d\n", *j);
+//  printf("k=%d\n", *k);
+//  printf("l=%d\n", *l);
+//  printf("factor=%f\n", *factor);
+//  tce_sort_4_(unsorted, sorted, a, b, c, d, i, j, k, l, factor);
+  printf("workq_dgemm here\n");
+//  printf("out alive\n");
+  return 0;
+}
+
+int workq_execute_task_(double *k_cs,
                              int *dima_sort, int *dimb_sort, int *dim_common,
                              int *a, int *b, int *c, int *d, int *e, int *f,
                              int *i, int *j, int *k, int *l, double *factor,
-                             int *alpha, char *c1, char *c2, int *rank) {
+                             double *alpha, char *c1, char *c2, int *rank) {
 
   int dima = *dima_sort * (*dim_common);
   int dimb = *dimb_sort * (*dim_common);
   double *a_sorted = (double *) malloc (dima * sizeof(double));
   double *b_sorted = (double *) malloc (dimb * sizeof(double));
 
-  work_queue_tce_sort_4_(shm_data + shm_offset, a_sorted, e,f,d,c, i,j,k,l, factor);
+  workq_tce_sort_4_(shm_data + shm_offset, a_sorted, e,f,d,c, i,j,k,l, factor);
   shm_offset += dima;
 
-  work_queue_tce_sort_4_(shm_data + shm_offset, b_sorted, b,a,e,f, k,l,i,j, factor);
+  workq_tce_sort_4_(shm_data + shm_offset, b_sorted, b,a,e,f, k,l,i,j, factor);
   shm_offset += dimb;
 
-  work_queue_dgemm_(c1,c2,alpha,factor,dima_sort,dimb_sort,dim_common,
+  workq_dgemm_(c1,c2,alpha,factor,dima_sort,dimb_sort,dim_common,
                     a_sorted,b_sorted,k_cs);
 
   free(a_sorted);
@@ -293,13 +314,13 @@ int work_queue_execute_task_(double *k_cs,
 
 }
 
-int work_queue_execute_task_single_(double *k_cs,
+int workq_execute_task_single_(double *k_cs,
                              int *tile_dim,
                              double *alpha, double *factor,
                              char *c1, char *c2,
                              int *rank) {
 
-//  work_queue_dgemm_(c1,c2,alpha,factor,dima_sort,dimb_sort,dim_common,
+//  workq_dgemm_(c1,c2,alpha,factor,dima_sort,dimb_sort,dim_common,
 //                    a_sorted,b_sorted,k_cs);
 
   int dima, dimb;
@@ -315,7 +336,7 @@ int work_queue_execute_task_single_(double *k_cs,
     printf("\n\n");
   }
 
-  work_queue_dgemm_(c1,c2,alpha,factor,tile_dim,tile_dim,tile_dim,
+  workq_dgemm_(c1,c2,alpha,factor,tile_dim,tile_dim,tile_dim,
                     shm_data + shm_offset,
                     shm_data + shm_offset + dima, k_cs);
   shm_offset += dima + dimb;
@@ -324,27 +345,7 @@ int work_queue_execute_task_single_(double *k_cs,
 
 }
 
-int work_queue_tce_sort_4_(double *unsorted, double *sorted,
-                           int *a, int *b, int *c, int *d, 
-                           int *i, int *j, int *k, int *l, double *factor) {
-//  printf("unsorted[0]=%f\n", unsorted[0]);
-//  printf("sorted[0]=%f\n", sorted[0]);
-//  printf("a=%d\n", *a);
-//  printf("b=%d\n", *b);
-//  printf("c=%d\n", *c);
-//  printf("d=%d\n", *d);
-//  printf("i=%d\n", *i);
-//  printf("j=%d\n", *j);
-//  printf("k=%d\n", *k);
-//  printf("l=%d\n", *l);
-//  printf("factor=%f\n", *factor);
-//  tce_sort_4_(unsorted, sorted, a, b, c, d, i, j, k, l, factor);
-  printf("work_queue_dgemm here\n");
-//  printf("out alive\n");
-  return 0;
-}
-
-int work_queue_get_data_(
+int workq_get_data_(
                           int *dima,
                           double *k_a,
                           int *dimb,
@@ -375,10 +376,9 @@ int work_queue_get_data_(
   return 0;
 }
 
-int work_queue_free_shm_( int *task_id, int *data_size, int *shmid ) {
+int workq_free_shm_( int *task_id, int *data_size, int *shmid ) {
 #ifdef USE_POSIX_SHM
   //TODO: call munmap()/shm_unlink() ONLY if this is the end of the application
-  int fd;
   char shm_name[64]; 
 
   /* Create unique file object name from task_id */

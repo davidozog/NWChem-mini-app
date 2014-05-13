@@ -1,19 +1,13 @@
-#ifndef _WORK_QUEUE_H
-#define _WORK_QUEUE_H
+#ifndef _WORKQ_H
+#define _WORKQ_H
 
 #define MSG_NUMB 2
 #define MSG_TYPE 1
-#define MAXMICROTASKS 4096
+#define MAXMICROTASKS 64
 #define NUM_MSGQS 1
 #define NUM_QUEUES 1
-#define USE_POSIX_SHM 1
-#define USE_MPI_SHM 1
-#ifdef FTOKM
-  #define FTOK_FILEPATH FTOKM
-#endif
-#ifdef FTOKD
-  #define FTOK_DATAPATH FTOKD
-#endif
+#define FTOK_FILEPATH "/global/homes/o/ozog/somefile"
+#define FTOK_DATAPATH "/global/homes/o/ozog/datafile"
 
 /* Specific to macro-task: */
 struct num_tasks {

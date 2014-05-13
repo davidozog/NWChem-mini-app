@@ -1,5 +1,5 @@
-#ifndef _WORK_QUEUE_H
-#define _WORK_QUEUE_H
+#ifndef _WORKQ_H
+#define _WORKQ_H
 
 #define MSG_NUMB 2
 #define MSG_TYPE 1

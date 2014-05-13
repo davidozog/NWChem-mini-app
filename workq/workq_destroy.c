@@ -6,9 +6,9 @@
 #include <sys/msg.h>
 #include <sys/sem.h>
 #include <sys/shm.h>
-#include "work_queue.h"
+#include "workq.h"
 
-int work_queue_destroy_(int *msqids) {
+int workq_destroy_(int *msqids) {
   int i; 
   for (i=0; i<NUM_MSGQS; i++) {
     if (msgctl(msqids[i], IPC_RMID, NULL) == -1) {
@@ -19,7 +19,7 @@ int work_queue_destroy_(int *msqids) {
   return 0;
 }
 
-int work_queue_destroy_sem_() {
+int workq_destroy_sem_() {
   key_t key;
   int semid;
 
@@ -39,7 +39,7 @@ int work_queue_destroy_sem_() {
   return 0;
 }
 
-int work_queue_destroy_data_(int *shmid) {
+int workq_destroy_data_(int *shmid) {
   if (shmctl(*shmid, IPC_RMID, NULL) == -1) {
     perror("shmctl");
     exit(1);
